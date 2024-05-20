@@ -1,6 +1,7 @@
 import argparse
 import sys
 from asf_client import ASFClient
+from sarutils import SARUtils
 from config import load_config
 from logger import setup_logger
 
@@ -14,6 +15,7 @@ def main():
     parser.add_argument('--submit', help='Submit jobs from list', action='store_true')
     parser.add_argument('--download', help='Download completed jobs', action='store_true')
     parser.add_argument('--status', help='Check status of submitted jobs', action='store_true')
+    parser.add_argument('--maskland', help='Apply mask to directory of .tifs', action='store_true')
     args = parser.parse_args()
 
     config = load_config(args.config)
