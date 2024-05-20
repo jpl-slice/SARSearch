@@ -1,9 +1,9 @@
 import os
 import rasterio
 import numpy as np
-from multiprocessing import Pool, cpu_count
+from multiprocessing import Pool, cpu_count, Manager
 from rasterio.warp import reproject, Resampling
-from typing import Tuple, List
+from typing import Tuple
 
 
 class SARUtils:
@@ -70,6 +70,8 @@ class SARUtils:
         sar_meta.update(dtype=rasterio.float32, nodata=np.nan)
         with rasterio.open(output_file_path, 'w', **sar_meta) as dst:
             dst.write(masked_sar_image, 1)
+
+        print(f"Finished processing {sar_image_path}")
 
     def process_file(self, args: Tuple[str, str]) -> None:
         """
