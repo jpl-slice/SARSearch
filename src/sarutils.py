@@ -1,3 +1,4 @@
+import json
 import os
 import rasterio
 import numpy as np
@@ -14,13 +15,16 @@ class SARUtils:
         Args:
             landcover_tif_path (str): Path to the landcover GeoTIFF file.
         """
-        self.landcover_tif_path = landcover_tif_path
+        try:
+            self.landcover_tif_path = landcover_tif_path
 
-        # Read the landcover GeoTIFF and store the data and metadata
-        with rasterio.open(landcover_tif_path) as land_src:
-            self.landcover_data = land_src.read(1)
-            self.land_transform = land_src.transform
-            self.land_crs = land_src.crs
+            # Read the landcover GeoTIFF and store the data and metadata
+            with rasterio.open(landcover_tif_path) as land_src:
+                self.landcover_data = land_src.read(1)
+                self.land_transform = land_src.transform
+                self.land_crs = land_src.crs
+        except Exception as e:
+            print(f"Error loading landcover data: {e}")
 
     def apply_landmask(self, sar_image_path: str, output_dir: str) -> None:
         """
@@ -100,3 +104,38 @@ class SARUtils:
         # Create a pool of worker processes
         with Pool(cpu_count()) as pool:
             pool.map(self.process_file, [(file_path, output_dir) for file_path in tif_files])
+
+    def index_tiles(self, tiff_dir: str, output_file: str, tile_size: int = 512, land_threshold: float = 0.25) -> None:
+        """
+        Index potential valid tiles from GeoTIFF files.
+
+        Args:
+            tiff_dir (str): Directory containing the landmasked GeoTIFFs.
+            output_file (str): File to save the tile index.
+            tile_size (int): Size of the square tiles to extract.
+            land_threshold (float): Maximum allowable proportion of land in a tile.
+        """
+        tile_index = []
+
+        tiff_files = [os.path.join(tiff_dir, f) for f in os.listdir(tiff_dir) if f.endswith('.tif')]
+
+        for file_path in tiff_files:
+            with rasterio.open(file_path) as src:
+                height, width = src.height, src.width
+
+                for y in range(0, height - tile_size + 1, tile_size):
+                    for x in range(0, width - tile_size + 1, tile_size):
+                        window = rasterio.windows.Window(x, y, tile_size, tile_size)
+                        tile = src.read(1, window=window)
+                        land_pixels = np.isnan(tile)
+                        land_proportion = np.mean(land_pixels)
+
+                        if land_proportion <= land_threshold:
+                            tile_index.append({
+                                'file': file_path,
+                                'x': x,
+                                'y': y
+                            })
+
+        with open(output_file, 'w') as f:
+            json.dump(tile_index, f)
