@@ -1,11 +1,18 @@
+import rasterio
+import random
+import numpy as np
+import torch
+from torch.utils.data import Dataset, DataLoader
+import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
+from rasterio.warp import reproject, Resampling
+
 import json
 import os
-import rasterio
-import numpy as np
-from multiprocessing import Pool, cpu_count, Manager
-from rasterio.warp import reproject, Resampling
+from multiprocessing import Pool, cpu_count
 from typing import Tuple
-
+from typing import Union
+from rtree import index
 
 class SARUtils:
     def __init__(self, landcover_tif_path: str):
@@ -105,7 +112,10 @@ class SARUtils:
         with Pool(cpu_count()) as pool:
             pool.map(self.process_file, [(file_path, output_dir) for file_path in tif_files])
 
-    def index_tiles(self, tiff_dir: str, output_file: str, tile_size: int = 512, land_threshold: float = 0.25) -> None:
+    @staticmethod
+    def index_tiles(tiff_dir: str, output_file: str, tile_size: int = 512, land_threshold: float = 0.25,
+                    stride: Union[int, float] = 1.0, random_sampling: bool = False,
+                    num_random_samples: int = 1000) -> None:
         """
         Index potential valid tiles from GeoTIFF files.
 
@@ -114,28 +124,110 @@ class SARUtils:
             output_file (str): File to save the tile index.
             tile_size (int): Size of the square tiles to extract.
             land_threshold (float): Maximum allowable proportion of land in a tile.
+            stride (Union[int, float]): Stride for sliding window. Can be an integer or a float
+                representing a fraction of the tile size.
+        random_sampling (bool): Whether to use random sampling instead of sliding window.
+            num_random_samples (int): Number of random samples to generate if random_sampling is True.
         """
         tile_index = []
-
         tiff_files = [os.path.join(tiff_dir, f) for f in os.listdir(tiff_dir) if f.endswith('.tif')]
+
+        # Create an R-tree index for efficient spatial querying
+        idx = index.Index()
 
         for file_path in tiff_files:
             with rasterio.open(file_path) as src:
                 height, width = src.height, src.width
 
-                for y in range(0, height - tile_size + 1, tile_size):
-                    for x in range(0, width - tile_size + 1, tile_size):
+                # Calculate stride
+                if isinstance(stride, float):
+                    stride = int(tile_size * stride)
+
+                if random_sampling:
+                    for _ in range(num_random_samples):
+                        x = random.randint(0, width - tile_size)
+                        y = random.randint(0, height - tile_size)
+                        # Check for duplicates using the R-tree index
+                        if list(idx.intersection((x, y, x + tile_size, y + tile_size))):
+                            continue
                         window = rasterio.windows.Window(x, y, tile_size, tile_size)
                         tile = src.read(1, window=window)
                         land_pixels = np.isnan(tile)
                         land_proportion = np.mean(land_pixels)
-
                         if land_proportion <= land_threshold:
-                            tile_index.append({
-                                'file': file_path,
-                                'x': x,
-                                'y': y
-                            })
+                            tile_index.append({'file': file_path, 'x': x, 'y': y})
+                            idx.insert(len(tile_index) - 1, (x, y, x + tile_size, y + tile_size))
+                else:
+                    for y in range(0, height - tile_size + 1, stride):
+                        for x in range(0, width - tile_size + 1, stride):
+                            window = rasterio.windows.Window(x, y, tile_size, tile_size)
+                            tile = src.read(1, window=window)
+                            land_pixels = np.isnan(tile)
+                            land_proportion = np.mean(land_pixels)
+                            if land_proportion <= land_threshold:
+                                tile_index.append({'file': file_path, 'x': x, 'y': y})
 
+        # Save the tile index to a JSON file
         with open(output_file, 'w') as f:
             json.dump(tile_index, f)
+
+    @staticmethod
+    def preview_tiles(index_file: str, tile_size: int, num_tiles: int = 9) -> None:
+        """
+        Preview tiles from the indexed tiles.
+
+        Args:
+            index_file (str): Path to the JSON file containing the tile index.
+            tile_size (int): Size of the square tiles to extract.
+            num_tiles (int): Number of tiles to preview.
+        """
+        with open(index_file, 'r') as f:
+            tile_index = json.load(f)
+
+        # Randomly select one frame
+        selected_frame = random.choice(tile_index)['file']
+        selected_tiles = [tile for tile in tile_index if tile['file'] == selected_frame]
+        selected_tiles = random.sample(selected_tiles, min(num_tiles, len(selected_tiles)))
+
+        fig, ax = plt.subplots(1, 1, figsize=(10, 10))
+
+        # Visualize the entire SAR frame with boxes representing the tiles
+        with rasterio.open(selected_frame) as src:
+            image = src.read(1)
+            ax.imshow(image, cmap='gray')
+            for tile_info in selected_tiles:
+                x = tile_info['x']
+                y = tile_info['y']
+                rect = Rectangle((x, y), tile_size, tile_size, linewidth=1, edgecolor='r', facecolor='none')
+                ax.add_patch(rect)
+            ax.set_title("SAR Frame with Selected Tiles")
+
+        plt.show()
+
+        # Display nxn grid of selected tiles
+        n = int(np.ceil(np.sqrt(num_tiles)))
+        fig, axes = plt.subplots(n, n, figsize=(15, 15))
+
+        for i, tile_info in enumerate(selected_tiles):
+            file_path = tile_info['file']
+            x = tile_info['x']
+            y = tile_info['y']
+
+            with rasterio.open(file_path) as src:
+                window = rasterio.windows.Window(x, y, tile_size, tile_size)
+                tile = src.read(1, window=window)
+                tile = np.nan_to_num(tile, nan=0.0)
+
+            ax = axes[i // n, i % n]
+            ax.imshow(tile, cmap='gray')
+            ax.set_title(f"Tile {i + 1}")
+
+        # Hide unused subplots
+        for j in range(i + 1, n * n):
+            axes[j // n, j % n].axis('off')
+
+        plt.tight_layout()
+        plt.show()
+
+        plt.tight_layout()
+        plt.show()
