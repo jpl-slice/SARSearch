@@ -168,6 +168,7 @@ class SARUtils:
             )
             tile_area = tile_size**2
             max_possible_tiles = total_image_area // tile_area
+            logging.info(f"Theoretical maxiumum number of tiles: {max_possible_tiles}")
             if num_random_samples > max_possible_tiles:
                 logging.warning(
                     "Requested number of random samples exceeds the feasible number of tiles."
