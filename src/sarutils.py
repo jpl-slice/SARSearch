@@ -8,11 +8,15 @@ from matplotlib.patches import Rectangle
 from rasterio.warp import reproject, Resampling
 
 import json
+import logging
 import os
+import time
 from multiprocessing import Pool, cpu_count
+from tqdm import tqdm
 from typing import Tuple
 from typing import Union
 from rtree import index
+
 
 class SARUtils:
     def __init__(self, landcover_tif_path: str):
@@ -52,8 +56,10 @@ class SARUtils:
 
             # Reproject landcover data if CRS does not match
             if sar_crs != self.land_crs:
-                reprojected_landcover_data = np.empty(shape=(sar_meta['height'], sar_meta['width']),
-                                                      dtype=self.landcover_data.dtype)
+                reprojected_landcover_data = np.empty(
+                    shape=(sar_meta["height"], sar_meta["width"]),
+                    dtype=self.landcover_data.dtype,
+                )
                 reproject(
                     source=self.landcover_data,
                     destination=reprojected_landcover_data,
@@ -61,7 +67,7 @@ class SARUtils:
                     src_crs=self.land_crs,
                     dst_transform=sar_transform,
                     dst_crs=sar_crs,
-                    resampling=Resampling.nearest
+                    resampling=Resampling.nearest,
                 )
                 landcover_data = reprojected_landcover_data
             else:
@@ -75,11 +81,14 @@ class SARUtils:
         masked_sar_image = np.where(land_mask, np.nan, sar_image)
 
         # Generate output file path
-        output_file_path = os.path.join(output_dir, os.path.basename(sar_image_path).replace('.tif', '_landmask.tif'))
+        output_file_path = os.path.join(
+            output_dir,
+            os.path.basename(sar_image_path).replace(".tif", "_landmask.tif"),
+        )
 
         # Save the masked SAR image to a new file
         sar_meta.update(dtype=rasterio.float32, nodata=np.nan)
-        with rasterio.open(output_file_path, 'w', **sar_meta) as dst:
+        with rasterio.open(output_file_path, "w", **sar_meta) as dst:
             dst.write(masked_sar_image, 1)
 
         print(f"Finished processing {sar_image_path}")
@@ -106,36 +115,68 @@ class SARUtils:
         os.makedirs(output_dir, exist_ok=True)
 
         # Get list of all GeoTIFF files in the input directory
-        tif_files = [os.path.join(input_dir, f) for f in os.listdir(input_dir) if f.endswith('.tif')]
+        tif_files = [
+            os.path.join(input_dir, f)
+            for f in os.listdir(input_dir)
+            if f.endswith(".tif")
+        ]
 
         # Create a pool of worker processes
         with Pool(cpu_count()) as pool:
-            pool.map(self.process_file, [(file_path, output_dir) for file_path in tif_files])
+            pool.map(
+                self.process_file, [(file_path, output_dir) for file_path in tif_files]
+            )
 
     @staticmethod
-    def index_tiles(tiff_dir: str, output_file: str, tile_size: int = 512, land_threshold: float = 0.25,
-                    stride: Union[int, float] = 1.0, random_sampling: bool = False,
-                    num_random_samples: int = 1000) -> None:
+    def index_tiles(
+        tiff_dir: str,
+        output_file: str,
+        tile_size: int = 512,
+        land_threshold: float = 0.25,
+        stride: Union[int, float] = 1.0,
+        random_sampling: bool = False,
+        num_random_samples: int = 1000,
+    ) -> None:
         """
         Index potential valid tiles from GeoTIFF files.
 
         Args:
-            tiff_dir (str): Directory containing the landmasked GeoTIFFs.
-            output_file (str): File to save the tile index.
-            tile_size (int): Size of the square tiles to extract.
-            land_threshold (float): Maximum allowable proportion of land in a tile.
-            stride (Union[int, float]): Stride for sliding window. Can be an integer or a float
-                representing a fraction of the tile size.
-        random_sampling (bool): Whether to use random sampling instead of sliding window.
-            num_random_samples (int): Number of random samples to generate if random_sampling is True.
+                tiff_dir (str): Directory containing the landmasked GeoTIFFs.
+                output_file (str): File to save the tile index.
+                tile_size (int): Size of the square tiles to extract.
+                land_threshold (float): Maximum allowable proportion of land in a tile.
+                stride (Union[int, float]): Stride for sliding window. Can be an integer or a float representing a fraction of the tile size.
+                random_sampling (bool): Whether to use random sampling instead of sliding window.
+                num_random_samples (int): Number of random samples to generate if random_sampling is True.
         """
+        logging.basicConfig(
+            level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+        )
+        start_time = time.time()
+
         tile_index = []
-        tiff_files = [os.path.join(tiff_dir, f) for f in os.listdir(tiff_dir) if f.endswith('.tif')]
+        tiff_files = [
+            os.path.join(tiff_dir, f)
+            for f in os.listdir(tiff_dir)
+            if f.endswith(".tif")
+        ]
+
+        if random_sampling:
+            # Calculate the total possible number of non-overlapping tiles
+            total_image_area = sum(
+                [rasterio.open(f).width * rasterio.open(f).height for f in tiff_files]
+            )
+            tile_area = tile_size**2
+            max_possible_tiles = total_image_area // tile_area
+            if num_random_samples > max_possible_tiles:
+                logging.warning(
+                    "Requested number of random samples exceeds the feasible number of tiles."
+                )
 
         # Create an R-tree index for efficient spatial querying
         idx = index.Index()
 
-        for file_path in tiff_files:
+        for file_path in tqdm(tiff_files, desc="Indexing tiles"):
             with rasterio.open(file_path) as src:
                 height, width = src.height, src.width
 
@@ -155,8 +196,11 @@ class SARUtils:
                         land_pixels = np.isnan(tile)
                         land_proportion = np.mean(land_pixels)
                         if land_proportion <= land_threshold:
-                            tile_index.append({'file': file_path, 'x': x, 'y': y})
-                            idx.insert(len(tile_index) - 1, (x, y, x + tile_size, y + tile_size))
+                            tile_index.append({"file": file_path, "x": x, "y": y})
+                            idx.insert(
+                                len(tile_index) - 1,
+                                (x, y, x + tile_size, y + tile_size),
+                            )
                 else:
                     for y in range(0, height - tile_size + 1, stride):
                         for x in range(0, width - tile_size + 1, stride):
@@ -165,11 +209,14 @@ class SARUtils:
                             land_pixels = np.isnan(tile)
                             land_proportion = np.mean(land_pixels)
                             if land_proportion <= land_threshold:
-                                tile_index.append({'file': file_path, 'x': x, 'y': y})
+                                tile_index.append({"file": file_path, "x": x, "y": y})
 
-        # Save the tile index to a JSON file
-        with open(output_file, 'w') as f:
+        with open(output_file, "w") as f:
             json.dump(tile_index, f)
+
+        end_time = time.time()
+        logging.info(f"Indexing completed in {end_time - start_time:.2f} seconds.")
+        logging.info(f"Total tiles indexed: {len(tile_index)}")
 
     @staticmethod
     def preview_tiles(index_file: str, tile_size: int, num_tiles: int = 9) -> None:
@@ -181,24 +228,33 @@ class SARUtils:
             tile_size (int): Size of the square tiles to extract.
             num_tiles (int): Number of tiles to preview.
         """
-        with open(index_file, 'r') as f:
+        with open(index_file, "r") as f:
             tile_index = json.load(f)
 
         # Randomly select one frame
-        selected_frame = random.choice(tile_index)['file']
-        selected_tiles = [tile for tile in tile_index if tile['file'] == selected_frame]
-        selected_tiles = random.sample(selected_tiles, min(num_tiles, len(selected_tiles)))
+        selected_frame = random.choice(tile_index)["file"]
+        selected_tiles = [tile for tile in tile_index if tile["file"] == selected_frame]
+        selected_tiles = random.sample(
+            selected_tiles, min(num_tiles, len(selected_tiles))
+        )
 
         fig, ax = plt.subplots(1, 1, figsize=(10, 10))
 
         # Visualize the entire SAR frame with boxes representing the tiles
         with rasterio.open(selected_frame) as src:
             image = src.read(1)
-            ax.imshow(image, cmap='gray')
+            ax.imshow(image, cmap="gray")
             for tile_info in selected_tiles:
-                x = tile_info['x']
-                y = tile_info['y']
-                rect = Rectangle((x, y), tile_size, tile_size, linewidth=1, edgecolor='r', facecolor='none')
+                x = tile_info["x"]
+                y = tile_info["y"]
+                rect = Rectangle(
+                    (x, y),
+                    tile_size,
+                    tile_size,
+                    linewidth=1,
+                    edgecolor="r",
+                    facecolor="none",
+                )
                 ax.add_patch(rect)
             ax.set_title("SAR Frame with Selected Tiles")
 
@@ -209,9 +265,9 @@ class SARUtils:
         fig, axes = plt.subplots(n, n, figsize=(15, 15))
 
         for i, tile_info in enumerate(selected_tiles):
-            file_path = tile_info['file']
-            x = tile_info['x']
-            y = tile_info['y']
+            file_path = tile_info["file"]
+            x = tile_info["x"]
+            y = tile_info["y"]
 
             with rasterio.open(file_path) as src:
                 window = rasterio.windows.Window(x, y, tile_size, tile_size)
@@ -219,12 +275,12 @@ class SARUtils:
                 tile = np.nan_to_num(tile, nan=0.0)
 
             ax = axes[i // n, i % n]
-            ax.imshow(tile, cmap='gray')
+            ax.imshow(tile, cmap="gray")
             ax.set_title(f"Tile {i + 1}")
 
         # Hide unused subplots
         for j in range(i + 1, n * n):
-            axes[j // n, j % n].axis('off')
+            axes[j // n, j % n].axis("off")
 
         plt.tight_layout()
         plt.show()
