@@ -57,6 +57,7 @@ def main():
     parser_zip = subparsers.add_parser('process_zip', help="Process zip files from ASF")
     parser_zip.add_argument('--input_dir', type=str, help="Directory containing the zip files")
     parser_zip.add_argument('--output_dir', type=str, help="Destination directory for extracted files")
+    parser_zip.add_argument('--num_processes', type=int, help="Number of processes to use for extraction", default=1)
 
     # Sub-parser for applying landmask to already downloaded files
     parser_apply = subparsers.add_parser('apply_landmask', help="Apply landmask to downloaded files")
@@ -78,8 +79,8 @@ def main():
     logger = setup_logger()
 
     if args.command == 'process_zip':
-        sar_utils = SARUtils()
-        sar_utils.process_zip_files_in_directory(args.input_dir, args.output_dir)
+        sar_utils = SARUtils(logger)
+        sar_utils.process_zip_files_in_directory(args.input_dir, args.output_dir, num_processes=args.num_processes)
         logger.info(f"Processed and extracted zip files from {args.input_dir} to {args.output_dir}")
     elif args.command == 'apply_landmask':
         sar_utils = SARUtils(args.landcover_tif)

@@ -76,13 +76,16 @@ class SARUtils:
     manager = Manager()
     results = manager.list()
 
-    def __init__(self, landcover_tif_path: str = None):
+    def __init__(self, logger, landcover_tif_path: str = None):
         """
         Initialize the SARUtils class with the path to the landcover GeoTIFF file.
 
         Args:
             landcover_tif_path (str): Path to the landcover GeoTIFF file.
         """
+        self.landcover_data = None
+        self.logger = logger
+
         if landcover_tif_path:
             try:
                 self.landcover_tif_path = landcover_tif_path
@@ -93,10 +96,9 @@ class SARUtils:
                     self.land_transform = land_src.transform
                     self.land_crs = land_src.crs
             except Exception as e:
-                print(f"Error loading landcover data: {e}")
+                self.logger.error(f"Error loading landcover data: {e}")
         else:
-            self.landcover_data = None
-            print("Landmask not provided.")
+            self.logger.info("Landmask not provided.")
 
     def apply_landmask(self, sar_image_path: str, output_dir: str) -> None:
         """
@@ -350,16 +352,15 @@ class SARUtils:
         plt.tight_layout()
         plt.show()
 
-    @classmethod
-    def process_zip_files_in_directory(cls, zip_dir, output_dir, num_workers=16):
+    def process_zip_files_in_directory(self, zip_dir, output_dir, num_processes=None):
         # Create output directory if it does not exist
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
 
         csv_file = os.path.join(output_dir, "output.csv")
 
-        if num_workers is None:
-            num_workers = cpu_count()
+        if num_processes is None:
+            num_processes = cpu_count()
 
         fieldnames = [
             'Granule Name',
@@ -381,11 +382,11 @@ class SARUtils:
         # Get a list of all zip files in the directory
         zip_files = [os.path.join(zip_dir, f) for f in os.listdir(zip_dir) if f.endswith('.zip')]
 
-        with ProcessPoolExecutor(max_workers=num_workers) as executor:
+        with ProcessPoolExecutor(max_workers=num_processes) as executor:
             futures = {executor.submit(SARUtils._process_zip_file, zip_file, output_dir): zip_file for zip_file in
                        zip_files}
             for future in futures:
-                future.add_done_callback(cls._collect_results)
+                future.add_done_callback(self._collect_results)
             for future in tqdm(as_completed(futures), total=len(futures), desc="Processing zip files"):
                 try:
                     future.result()
@@ -396,17 +397,17 @@ class SARUtils:
         with open(csv_file, 'w', newline='') as file:
             csv_writer = csv.DictWriter(file, fieldnames=fieldnames)
             csv_writer.writeheader()
-            for result in cls.results:
+            for result in self.results:
                 csv_writer.writerow(result)
 
-    @staticmethod
-    def _collect_results(future):
+    def _collect_results(self, future):
         try:
             result = future.result()
             with SARUtils.lock:
                 SARUtils.results.append(result)
+            self.logger.info(f"Processed {result['Granule Name']}")
         except Exception as e:
-            logging.error(f"Error in future result: {e}")
+            self.logger.error(f"Error in future result: {e}")
 
     @staticmethod
     def _process_zip_file(zip_file_path, output_dir):
@@ -463,19 +464,16 @@ class SARUtils:
                     new_vv_tif_name = f"{granule_name}_VV.tif"
                     new_vv_tif_path = os.path.join(vv_dir, new_vv_tif_name)
                     shutil.copy(vv_tif_file, new_vv_tif_path)
-                    #print(f"Copied and renamed {vv_tif_file} to {new_vv_tif_path}")
                 if vh_tif_file:
                     new_vh_tif_name = f"{granule_name}_VH.tif"
                     new_vh_tif_path = os.path.join(vh_dir, new_vh_tif_name)
                     shutil.copy(vh_tif_file, new_vh_tif_path)
-                    #print(f"Copied and renamed {vh_tif_file} to {new_vh_tif_path}")
 
             # Copy the preview images
             for preview_file in preview_files:
                 new_preview_name = os.path.basename(preview_file)
                 new_preview_path = os.path.join(preview_dir, new_preview_name)
                 shutil.copy(preview_file, new_preview_path)
-                #print(f"Copied {preview_file} to {new_preview_path}")
 
             # Extract key information from the log file
             log_info = None
@@ -483,9 +481,8 @@ class SARUtils:
                 log_info = extract_log_info(log_file)
                 log_info['Granule Name'] = granule_name
 
-            # Clean up the temporary directory
+            # Remove the temporary directory
             shutil.rmtree(temp_dir)
-
             return log_info
 
         except Exception as e:
