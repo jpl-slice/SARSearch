@@ -55,14 +55,14 @@ def main():
 
     # Sub-parser for processing zip files
     parser_zip = subparsers.add_parser('process_zip', help="Process zip files from ASF")
-    parser_zip.add_argument('input_dir', type=str, help="Directory containing the zip files")
-    parser_zip.add_argument('output_dir', type=str, help="Destination directory for extracted files")
+    parser_zip.add_argument('--input_dir', type=str, help="Directory containing the zip files")
+    parser_zip.add_argument('--output_dir', type=str, help="Destination directory for extracted files")
 
     # Sub-parser for applying landmask to already downloaded files
     parser_apply = subparsers.add_parser('apply_landmask', help="Apply landmask to downloaded files")
-    parser_apply.add_argument('input_dir', type=str, help="Directory containing the input GeoTIFF files")
-    parser_apply.add_argument('output_dir', type=str, help="Directory to save the masked GeoTIFF files")
-    parser_apply.add_argument('landcover_tif', type=str, help="Path to the landcover GeoTIFF file")
+    parser_apply.add_argument('--input_dir', type=str, help="Directory containing the input GeoTIFF files")
+    parser_apply.add_argument('--output_dir', type=str, help="Directory to save the masked GeoTIFF files")
+    parser_apply.add_argument('--landcover_tif', type=str, help="Path to the landcover GeoTIFF file")
 
     # Sub-parser for searching and downloading ASF frames
     parser_search = subparsers.add_parser('asf_hyp3', help="Interface with ASF hyp3. Search and download frames")
@@ -82,7 +82,9 @@ def main():
         sar_utils.process_zip_files_in_directory(args.input_dir, args.output_dir)
         logger.info(f"Processed and extracted zip files from {args.input_dir} to {args.output_dir}")
     elif args.command == 'apply_landmask':
-        apply_landmask_to_files(args.input_dir, args.output_dir, args.landcover_tif)
+        sar_utils = SARUtils(args.landcover_tif)
+        sar_utils.multiprocess_apply_landmask(args.input_dir, args.output_dir)
+        logger.info(f"Applied landmask to files in {args.input_dir} and saved to {args.output_dir}")
     elif args.command == 'asf_hyp3':
         config = load_config(args.config)
         asf_hyp3(config, logger=logger)

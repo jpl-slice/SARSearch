@@ -11,10 +11,12 @@ import csv
 import json
 import logging
 import os
+import re
 import shutil
 import time
 import zipfile
 from multiprocessing import Pool, Lock, Manager, cpu_count
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm
 from typing import Tuple
 from typing import Union
@@ -69,6 +71,11 @@ def extract_log_info(log_file_path):
 
 
 class SARUtils:
+    # Initialize a lock and manager for multiprocessing
+    lock = Lock()
+    manager = Manager()
+    results = manager.list()
+
     def __init__(self, landcover_tif_path: str = None):
         """
         Initialize the SARUtils class with the path to the landcover GeoTIFF file.
@@ -343,108 +350,16 @@ class SARUtils:
         plt.tight_layout()
         plt.show()
 
-    @staticmethod
-    def _process_zip_file(zip_file_path, output_dir):
-        try:
-            # Create a temporary directory to extract files
-            temp_dir = os.path.join(output_dir, 'temp', os.path.basename(zip_file_path))
-            os.makedirs(temp_dir, exist_ok=True)
-
-            # Unzip the file
-            with zipfile.ZipFile(zip_file_path, 'r') as zip_ref:
-                zip_ref.extractall(temp_dir)
-
-            # Find the README file, VV and VH tif files, preview images, and log file
-            readme_file = None
-            vv_tif_file = None
-            vh_tif_file = None
-            preview_files = []
-            log_file = None
-            granule_name = None
-            for root, dirs, files in os.walk(temp_dir):
-                for file in files:
-                    if file.endswith('.README.md.txt'):
-                        readme_file = os.path.join(root, file)
-                    elif file.endswith('_VV.tif'):
-                        vv_tif_file = os.path.join(root, file)
-                    elif file.endswith('_VH.tif'):
-                        vh_tif_file = os.path.join(root, file)
-                    elif file.endswith('.png') and '_rgb' not in file:
-                        preview_files.append(os.path.join(root, file))
-                    elif file.endswith('.log'):
-                        log_file = os.path.join(root, file)
-
-            # Extract the granule name from the README file
-            if readme_file:
-                with open(readme_file, 'r') as f:
-                    for line in f:
-                        if 'S1A' in line:
-                            granule_name = line.split('S1A')[1].split()[0]
-                            granule_name = 'S1A' + granule_name
-                            break
-
-            # Create subdirectories for VV, VH, and preview images if they do not exist
-            vv_dir = os.path.join(output_dir, 'vv')
-            vh_dir = os.path.join(output_dir, 'vh')
-            preview_dir = os.path.join(output_dir, 'preview')
-            os.makedirs(vv_dir, exist_ok=True)
-            os.makedirs(vh_dir, exist_ok=True)
-            os.makedirs(preview_dir, exist_ok=True)
-
-            # Copy and rename the VV and VH tif files
-            if granule_name:
-                if vv_tif_file:
-                    new_vv_tif_name = f"{granule_name}_VV.tif"
-                    new_vv_tif_path = os.path.join(vv_dir, new_vv_tif_name)
-                    shutil.copy(vv_tif_file, new_vv_tif_path)
-                    print(f"Copied and renamed {vv_tif_file} to {new_vv_tif_path}")
-                if vh_tif_file:
-                    new_vh_tif_name = f"{granule_name}_VH.tif"
-                    new_vh_tif_path = os.path.join(vh_dir, new_vh_tif_name)
-                    shutil.copy(vh_tif_file, new_vh_tif_path)
-                    print(f"Copied and renamed {vh_tif_file} to {new_vh_tif_path}")
-
-            # Copy the preview images
-            for preview_file in preview_files:
-                new_preview_name = os.path.basename(preview_file)
-                new_preview_path = os.path.join(preview_dir, new_preview_name)
-                shutil.copy(preview_file, new_preview_path)
-                print(f"Copied {preview_file} to {new_preview_path}")
-
-            # Extract key information from the log file
-            log_info = None
-            if log_file and granule_name:
-                log_info = extract_log_info(log_file)
-                log_info['Granule Name'] = granule_name
-
-            # Clean up the temporary directory
-            shutil.rmtree(temp_dir)
-
-            return log_info
-
-        except Exception as e:
-            print(f"Error processing {zip_file_path}: {e}")
-            return None
-
-    @staticmethod
-    def process_zip_files_in_directory(zip_dir, output_dir, num_workers=None):
+    @classmethod
+    def process_zip_files_in_directory(cls, zip_dir, output_dir, num_workers=16):
         # Create output directory if it does not exist
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
 
         csv_file = os.path.join(output_dir, "output.csv")
 
-        if not num_workers:
+        if num_workers is None:
             num_workers = cpu_count()
-
-        # Create CSV file and writer
-        csv_lock = Lock()
-        manager = Manager()
-        results = manager.list()
-
-        def collect_results(result):
-            if result:
-                results.append(result)
 
         fieldnames = [
             'Granule Name',
@@ -466,16 +381,114 @@ class SARUtils:
         # Get a list of all zip files in the directory
         zip_files = [os.path.join(zip_dir, f) for f in os.listdir(zip_dir) if f.endswith('.zip')]
 
-        # Use multiprocessing to process the files
-        with Pool(num_workers) as pool:
-            for zip_file in zip_files:
-                pool.apply_async(SARUtils._process_zip_file, args=(zip_file, output_dir), callback=collect_results)
-            pool.close()
-            pool.join()
+        with ProcessPoolExecutor(max_workers=num_workers) as executor:
+            futures = {executor.submit(SARUtils._process_zip_file, zip_file, output_dir): zip_file for zip_file in
+                       zip_files}
+            for future in futures:
+                future.add_done_callback(cls._collect_results)
+            for future in tqdm(as_completed(futures), total=len(futures), desc="Processing zip files"):
+                try:
+                    future.result()
+                except Exception as e:
+                    logging.error(f"Error processing {futures[future]}: {e}")
 
         # Write results to CSV file
-        with open(csv_file, 'w', newline='') as csvfile:
-            csv_writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        with open(csv_file, 'w', newline='') as file:
+            csv_writer = csv.DictWriter(file, fieldnames=fieldnames)
             csv_writer.writeheader()
-            for result in results:
+            for result in cls.results:
                 csv_writer.writerow(result)
+
+    @staticmethod
+    def _collect_results(future):
+        try:
+            result = future.result()
+            with SARUtils.lock:
+                SARUtils.results.append(result)
+        except Exception as e:
+            logging.error(f"Error in future result: {e}")
+
+    @staticmethod
+    def _process_zip_file(zip_file_path, output_dir):
+        try:
+            # Create a temporary directory to extract files
+            temp_dir = os.path.join(output_dir, 'temp', os.path.basename(zip_file_path))
+            os.makedirs(temp_dir, exist_ok=True)
+
+            # Unzip the file
+            with zipfile.ZipFile(zip_file_path, 'r') as zip_ref:
+                zip_ref.extractall(temp_dir)
+
+            # Find the README file, VV and VH tif files, preview images, and log file
+            readme_file = None
+            vv_tif_file = None
+            vh_tif_file = None
+            preview_files = []
+            log_file = None
+            granule_name = None
+            granule_name_re = re.compile(r'^S1[AB]_.*')
+            for root, dirs, files in os.walk(temp_dir):
+                for file in files:
+                    if file.endswith('.README.md.txt'):
+                        readme_file = os.path.join(root, file)
+                    elif file.endswith('_VV.tif'):
+                        vv_tif_file = os.path.join(root, file)
+                    elif file.endswith('_VH.tif'):
+                        vh_tif_file = os.path.join(root, file)
+                    elif file.endswith('.png') and '_rgb' not in file:
+                        preview_files.append(os.path.join(root, file))
+                    elif file.endswith('.log'):
+                        log_file = os.path.join(root, file)
+
+            # Extract the granule name from the README file
+            if readme_file:
+                with open(readme_file, 'r') as f:
+                    for line in f:
+                        match = granule_name_re.match(line)
+                        if match:
+                            granule_name = match.group()
+                            break
+
+            # Create subdirectories for VV, VH, and preview images if they do not exist
+            vv_dir = os.path.join(output_dir, 'vv')
+            vh_dir = os.path.join(output_dir, 'vh')
+            preview_dir = os.path.join(output_dir, 'preview')
+            os.makedirs(vv_dir, exist_ok=True)
+            os.makedirs(vh_dir, exist_ok=True)
+            os.makedirs(preview_dir, exist_ok=True)
+
+            # Copy and rename the VV and VH tif files
+            if granule_name:
+                if vv_tif_file:
+                    new_vv_tif_name = f"{granule_name}_VV.tif"
+                    new_vv_tif_path = os.path.join(vv_dir, new_vv_tif_name)
+                    shutil.copy(vv_tif_file, new_vv_tif_path)
+                    #print(f"Copied and renamed {vv_tif_file} to {new_vv_tif_path}")
+                if vh_tif_file:
+                    new_vh_tif_name = f"{granule_name}_VH.tif"
+                    new_vh_tif_path = os.path.join(vh_dir, new_vh_tif_name)
+                    shutil.copy(vh_tif_file, new_vh_tif_path)
+                    #print(f"Copied and renamed {vh_tif_file} to {new_vh_tif_path}")
+
+            # Copy the preview images
+            for preview_file in preview_files:
+                new_preview_name = os.path.basename(preview_file)
+                new_preview_path = os.path.join(preview_dir, new_preview_name)
+                shutil.copy(preview_file, new_preview_path)
+                #print(f"Copied {preview_file} to {new_preview_path}")
+
+            # Extract key information from the log file
+            log_info = None
+            if log_file and granule_name:
+                log_info = extract_log_info(log_file)
+                log_info['Granule Name'] = granule_name
+
+            # Clean up the temporary directory
+            shutil.rmtree(temp_dir)
+
+            return log_info
+
+        except Exception as e:
+            print(f"Error processing {zip_file_path}: {e}")
+            return None
+
