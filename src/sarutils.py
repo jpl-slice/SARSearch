@@ -7,35 +7,89 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 from rasterio.warp import reproject, Resampling
 
+import csv
 import json
 import logging
 import os
+import shutil
 import time
-from multiprocessing import Pool, cpu_count
+import zipfile
+from multiprocessing import Pool, Lock, Manager, cpu_count
 from tqdm import tqdm
 from typing import Tuple
 from typing import Union
 from rtree import index
 
 
+def extract_log_info(log_file_path):
+    key_info = {
+        'SAFE directory': '',
+        'Output resolution': '',
+        'Radiometry': '',
+        'Scale': '',
+        'Speckle filter': '',
+        'DEM matching': '',
+        'Include DEM': '',
+        'Include inc. angle map': '',
+        'Include scattering area': '',
+        'Include RGB decomposition': '',
+        'Orbit file': '',
+        'Output name': '',
+        'DEM name': ''
+    }
+    with open(log_file_path, 'r') as f:
+        for line in f:
+            if 'SAFE directory' in line:
+                key_info['SAFE directory'] = line.split(': ', 1)[1].strip()
+            elif 'Output resolution' in line:
+                key_info['Output resolution'] = line.split(': ', 1)[1].strip()
+            elif 'Radiometry' in line:
+                key_info['Radiometry'] = line.split(': ', 1)[1].strip()
+            elif 'Scale' in line:
+                key_info['Scale'] = line.split(': ', 1)[1].strip()
+            elif 'Speckle filter' in line:
+                key_info['Speckle filter'] = line.split(': ', 1)[1].strip()
+            elif 'DEM matching' in line:
+                key_info['DEM matching'] = line.split(': ', 1)[1].strip()
+            elif 'Include DEM' in line:
+                key_info['Include DEM'] = line.split(': ', 1)[1].strip()
+            elif 'Include inc. angle map' in line:
+                key_info['Include inc. angle map'] = line.split(': ', 1)[1].strip()
+            elif 'Include scattering area' in line:
+                key_info['Include scattering area'] = line.split(': ', 1)[1].strip()
+            elif 'Include RGB decomposition' in line:
+                key_info['Include RGB decomposition'] = line.split(': ', 1)[1].strip()
+            elif 'Orbit file' in line:
+                key_info['Orbit file'] = line.split(': ', 1)[1].strip()
+            elif 'Output name' in line:
+                key_info['Output name'] = line.split(': ', 1)[1].strip()
+            elif 'DEM name' in line:
+                key_info['DEM name'] = line.split(': ', 1)[1].strip()
+    return key_info
+
+
 class SARUtils:
-    def __init__(self, landcover_tif_path: str):
+    def __init__(self, landcover_tif_path: str = None):
         """
         Initialize the SARUtils class with the path to the landcover GeoTIFF file.
 
         Args:
             landcover_tif_path (str): Path to the landcover GeoTIFF file.
         """
-        try:
-            self.landcover_tif_path = landcover_tif_path
+        if landcover_tif_path:
+            try:
+                self.landcover_tif_path = landcover_tif_path
 
-            # Read the landcover GeoTIFF and store the data and metadata
-            with rasterio.open(landcover_tif_path) as land_src:
-                self.landcover_data = land_src.read(1)
-                self.land_transform = land_src.transform
-                self.land_crs = land_src.crs
-        except Exception as e:
-            print(f"Error loading landcover data: {e}")
+                # Read the landcover GeoTIFF and store the data and metadata
+                with rasterio.open(landcover_tif_path) as land_src:
+                    self.landcover_data = land_src.read(1)
+                    self.land_transform = land_src.transform
+                    self.land_crs = land_src.crs
+            except Exception as e:
+                print(f"Error loading landcover data: {e}")
+        else:
+            self.landcover_data = None
+            print("Landmask not provided.")
 
     def apply_landmask(self, sar_image_path: str, output_dir: str) -> None:
         """
@@ -288,3 +342,140 @@ class SARUtils:
 
         plt.tight_layout()
         plt.show()
+
+    @staticmethod
+    def _process_zip_file(zip_file_path, output_dir):
+        try:
+            # Create a temporary directory to extract files
+            temp_dir = os.path.join(output_dir, 'temp', os.path.basename(zip_file_path))
+            os.makedirs(temp_dir, exist_ok=True)
+
+            # Unzip the file
+            with zipfile.ZipFile(zip_file_path, 'r') as zip_ref:
+                zip_ref.extractall(temp_dir)
+
+            # Find the README file, VV and VH tif files, preview images, and log file
+            readme_file = None
+            vv_tif_file = None
+            vh_tif_file = None
+            preview_files = []
+            log_file = None
+            granule_name = None
+            for root, dirs, files in os.walk(temp_dir):
+                for file in files:
+                    if file.endswith('.README.md.txt'):
+                        readme_file = os.path.join(root, file)
+                    elif file.endswith('_VV.tif'):
+                        vv_tif_file = os.path.join(root, file)
+                    elif file.endswith('_VH.tif'):
+                        vh_tif_file = os.path.join(root, file)
+                    elif file.endswith('.png') and '_rgb' not in file:
+                        preview_files.append(os.path.join(root, file))
+                    elif file.endswith('.log'):
+                        log_file = os.path.join(root, file)
+
+            # Extract the granule name from the README file
+            if readme_file:
+                with open(readme_file, 'r') as f:
+                    for line in f:
+                        if 'S1A' in line:
+                            granule_name = line.split('S1A')[1].split()[0]
+                            granule_name = 'S1A' + granule_name
+                            break
+
+            # Create subdirectories for VV, VH, and preview images if they do not exist
+            vv_dir = os.path.join(output_dir, 'vv')
+            vh_dir = os.path.join(output_dir, 'vh')
+            preview_dir = os.path.join(output_dir, 'preview')
+            os.makedirs(vv_dir, exist_ok=True)
+            os.makedirs(vh_dir, exist_ok=True)
+            os.makedirs(preview_dir, exist_ok=True)
+
+            # Copy and rename the VV and VH tif files
+            if granule_name:
+                if vv_tif_file:
+                    new_vv_tif_name = f"{granule_name}_VV.tif"
+                    new_vv_tif_path = os.path.join(vv_dir, new_vv_tif_name)
+                    shutil.copy(vv_tif_file, new_vv_tif_path)
+                    print(f"Copied and renamed {vv_tif_file} to {new_vv_tif_path}")
+                if vh_tif_file:
+                    new_vh_tif_name = f"{granule_name}_VH.tif"
+                    new_vh_tif_path = os.path.join(vh_dir, new_vh_tif_name)
+                    shutil.copy(vh_tif_file, new_vh_tif_path)
+                    print(f"Copied and renamed {vh_tif_file} to {new_vh_tif_path}")
+
+            # Copy the preview images
+            for preview_file in preview_files:
+                new_preview_name = os.path.basename(preview_file)
+                new_preview_path = os.path.join(preview_dir, new_preview_name)
+                shutil.copy(preview_file, new_preview_path)
+                print(f"Copied {preview_file} to {new_preview_path}")
+
+            # Extract key information from the log file
+            log_info = None
+            if log_file and granule_name:
+                log_info = extract_log_info(log_file)
+                log_info['Granule Name'] = granule_name
+
+            # Clean up the temporary directory
+            shutil.rmtree(temp_dir)
+
+            return log_info
+
+        except Exception as e:
+            print(f"Error processing {zip_file_path}: {e}")
+            return None
+
+    @staticmethod
+    def process_zip_files_in_directory(zip_dir, output_dir, num_workers=None):
+        # Create output directory if it does not exist
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
+        csv_file = os.path.join(output_dir, "output.csv")
+
+        if not num_workers:
+            num_workers = cpu_count()
+
+        # Create CSV file and writer
+        csv_lock = Lock()
+        manager = Manager()
+        results = manager.list()
+
+        def collect_results(result):
+            if result:
+                results.append(result)
+
+        fieldnames = [
+            'Granule Name',
+            'SAFE directory',
+            'Output resolution',
+            'Radiometry',
+            'Scale',
+            'Speckle filter',
+            'DEM matching',
+            'Include DEM',
+            'Include inc. angle map',
+            'Include scattering area',
+            'Include RGB decomposition',
+            'Orbit file',
+            'Output name',
+            'DEM name'
+        ]
+
+        # Get a list of all zip files in the directory
+        zip_files = [os.path.join(zip_dir, f) for f in os.listdir(zip_dir) if f.endswith('.zip')]
+
+        # Use multiprocessing to process the files
+        with Pool(num_workers) as pool:
+            for zip_file in zip_files:
+                pool.apply_async(SARUtils._process_zip_file, args=(zip_file, output_dir), callback=collect_results)
+            pool.close()
+            pool.join()
+
+        # Write results to CSV file
+        with open(csv_file, 'w', newline='') as csvfile:
+            csv_writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            csv_writer.writeheader()
+            for result in results:
+                csv_writer.writerow(result)
