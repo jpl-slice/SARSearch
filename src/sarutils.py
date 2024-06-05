@@ -23,48 +23,48 @@ from rtree import index
 
 def extract_log_info(log_file_path):
     key_info = {
-        'SAFE directory': '',
-        'Output resolution': '',
-        'Radiometry': '',
-        'Scale': '',
-        'Speckle filter': '',
-        'DEM matching': '',
-        'Include DEM': '',
-        'Include inc. angle map': '',
-        'Include scattering area': '',
-        'Include RGB decomposition': '',
-        'Orbit file': '',
-        'Output name': '',
-        'DEM name': ''
+        "SAFE directory": "",
+        "Output resolution": "",
+        "Radiometry": "",
+        "Scale": "",
+        "Speckle filter": "",
+        "DEM matching": "",
+        "Include DEM": "",
+        "Include inc. angle map": "",
+        "Include scattering area": "",
+        "Include RGB decomposition": "",
+        "Orbit file": "",
+        "Output name": "",
+        "DEM name": "",
     }
-    with open(log_file_path, 'r') as f:
+    with open(log_file_path, "r") as f:
         for line in f:
-            if 'SAFE directory' in line:
-                key_info['SAFE directory'] = line.split(': ', 1)[1].strip()
-            elif 'Output resolution' in line:
-                key_info['Output resolution'] = line.split(': ', 1)[1].strip()
-            elif 'Radiometry' in line:
-                key_info['Radiometry'] = line.split(': ', 1)[1].strip()
-            elif 'Scale' in line:
-                key_info['Scale'] = line.split(': ', 1)[1].strip()
-            elif 'Speckle filter' in line:
-                key_info['Speckle filter'] = line.split(': ', 1)[1].strip()
-            elif 'DEM matching' in line:
-                key_info['DEM matching'] = line.split(': ', 1)[1].strip()
-            elif 'Include DEM' in line:
-                key_info['Include DEM'] = line.split(': ', 1)[1].strip()
-            elif 'Include inc. angle map' in line:
-                key_info['Include inc. angle map'] = line.split(': ', 1)[1].strip()
-            elif 'Include scattering area' in line:
-                key_info['Include scattering area'] = line.split(': ', 1)[1].strip()
-            elif 'Include RGB decomposition' in line:
-                key_info['Include RGB decomposition'] = line.split(': ', 1)[1].strip()
-            elif 'Orbit file' in line:
-                key_info['Orbit file'] = line.split(': ', 1)[1].strip()
-            elif 'Output name' in line:
-                key_info['Output name'] = line.split(': ', 1)[1].strip()
-            elif 'DEM name' in line:
-                key_info['DEM name'] = line.split(': ', 1)[1].strip()
+            if "SAFE directory" in line:
+                key_info["SAFE directory"] = line.split(": ", 1)[1].strip()
+            elif "Output resolution" in line:
+                key_info["Output resolution"] = line.split(": ", 1)[1].strip()
+            elif "Radiometry" in line:
+                key_info["Radiometry"] = line.split(": ", 1)[1].strip()
+            elif "Scale" in line:
+                key_info["Scale"] = line.split(": ", 1)[1].strip()
+            elif "Speckle filter" in line:
+                key_info["Speckle filter"] = line.split(": ", 1)[1].strip()
+            elif "DEM matching" in line:
+                key_info["DEM matching"] = line.split(": ", 1)[1].strip()
+            elif "Include DEM" in line:
+                key_info["Include DEM"] = line.split(": ", 1)[1].strip()
+            elif "Include inc. angle map" in line:
+                key_info["Include inc. angle map"] = line.split(": ", 1)[1].strip()
+            elif "Include scattering area" in line:
+                key_info["Include scattering area"] = line.split(": ", 1)[1].strip()
+            elif "Include RGB decomposition" in line:
+                key_info["Include RGB decomposition"] = line.split(": ", 1)[1].strip()
+            elif "Orbit file" in line:
+                key_info["Orbit file"] = line.split(": ", 1)[1].strip()
+            elif "Output name" in line:
+                key_info["Output name"] = line.split(": ", 1)[1].strip()
+            elif "DEM name" in line:
+                key_info["DEM name"] = line.split(": ", 1)[1].strip()
     return key_info
 
 
@@ -164,7 +164,9 @@ class SARUtils:
         sar_image_path, output_dir = args
         self.apply_landmask(sar_image_path, output_dir)
 
-    def multiprocess_apply_landmask(self, input_dir: str, output_dir: str, num_workers: int = None) -> None:
+    def multiprocess_apply_landmask(
+        self, input_dir: str, output_dir: str, num_workers: int = None
+    ) -> None:
         """
         Apply the landmask to all SAR images in the input directory using multiprocessing.
 
@@ -185,18 +187,29 @@ class SARUtils:
 
         # Create a pool of worker processes
         with ProcessPoolExecutor(max_workers=num_workers) as executor:
-            futures = {executor.submit(self.process_file, (file_path, output_dir)): file_path for file_path in
-                       tif_files}
+            futures = {
+                executor.submit(self.process_file, (file_path, output_dir)): file_path
+                for file_path in tif_files
+            }
 
-            for future in tqdm(as_completed(futures), total=len(futures), desc="Processing files"):
+            for future in tqdm(
+                as_completed(futures), total=len(futures), desc="Processing files"
+            ):
                 try:
                     future.result()
                 except Exception as e:
                     self.logger.error(f"Error processing {futures[future]}: {e}")
 
-    def index_tiles(self, tiff_dir: str, output_file: str = None, tile_size: int = 512, land_threshold: float = 0.25,
-                    stride: Union[int, float] = 1.0, random_sampling: bool = False,
-                    num_random_samples: int = 1000) -> None:
+    def index_tiles(
+        self,
+        tiff_dir: str,
+        output_file: str = None,
+        tile_size: int = 512,
+        land_threshold: float = 0.25,
+        stride: Union[int, float] = 1.0,
+        random_sampling: bool = False,
+        num_random_samples: int = 1000,
+    ) -> None:
         """
         Index potential valid tiles from GeoTIFF files.
 
@@ -226,7 +239,9 @@ class SARUtils:
             )
             tile_area = tile_size**2
             max_possible_tiles = total_image_area // tile_area
-            self.logger.info(f"Theoretical maxiumum number of tiles: {max_possible_tiles}")
+            self.logger.info(
+                f"Theoretical maxiumum number of tiles: {max_possible_tiles}"
+            )
             if num_random_samples > max_possible_tiles:
                 self.logger.warning(
                     "Requested number of random samples exceeds the feasible number of tiles."
@@ -358,37 +373,44 @@ class SARUtils:
             num_processes = cpu_count()
 
         fieldnames = [
-            'Granule Name',
-            'SAFE directory',
-            'Output resolution',
-            'Radiometry',
-            'Scale',
-            'Speckle filter',
-            'DEM matching',
-            'Include DEM',
-            'Include inc. angle map',
-            'Include scattering area',
-            'Include RGB decomposition',
-            'Orbit file',
-            'Output name',
-            'DEM name'
+            "Granule Name",
+            "SAFE directory",
+            "Output resolution",
+            "Radiometry",
+            "Scale",
+            "Speckle filter",
+            "DEM matching",
+            "Include DEM",
+            "Include inc. angle map",
+            "Include scattering area",
+            "Include RGB decomposition",
+            "Orbit file",
+            "Output name",
+            "DEM name",
         ]
 
         # Get a list of all zip files in the directory
-        zip_files = [os.path.join(zip_dir, f) for f in os.listdir(zip_dir) if f.endswith('.zip')]
+        zip_files = [
+            os.path.join(zip_dir, f) for f in os.listdir(zip_dir) if f.endswith(".zip")
+        ]
 
         with ProcessPoolExecutor(max_workers=num_processes) as executor:
-            futures = {executor.submit(self._process_zip_file, zip_file, output_dir): zip_file for zip_file in zip_files}
+            futures = {
+                executor.submit(self._process_zip_file, zip_file, output_dir): zip_file
+                for zip_file in zip_files
+            }
             for future in futures:
                 future.add_done_callback(self._collect_results)
-            for future in tqdm(as_completed(futures), total=len(futures), desc="Processing zip files"):
+            for future in tqdm(
+                as_completed(futures), total=len(futures), desc="Processing zip files"
+            ):
                 try:
                     future.result()
                 except Exception as e:
                     logging.error(f"Error processing {futures[future]}: {e}")
 
         # Write results to CSV file
-        with open(csv_file, 'w', newline='') as file:
+        with open(csv_file, "w", newline="") as file:
             csv_writer = csv.DictWriter(file, fieldnames=fieldnames)
             csv_writer.writeheader()
             for result in self.results:
@@ -406,11 +428,11 @@ class SARUtils:
     def _process_zip_file(self, zip_file_path, output_dir):
         try:
             # Create a temporary directory to extract files
-            temp_dir = os.path.join(output_dir, 'temp', os.path.basename(zip_file_path))
+            temp_dir = os.path.join(output_dir, "temp", os.path.basename(zip_file_path))
             os.makedirs(temp_dir, exist_ok=True)
 
             # Unzip the file
-            with zipfile.ZipFile(zip_file_path, 'r') as zip_ref:
+            with zipfile.ZipFile(zip_file_path, "r") as zip_ref:
                 zip_ref.extractall(temp_dir)
 
             # Find the README file, VV and VH tif files, preview images, and log file
@@ -420,23 +442,23 @@ class SARUtils:
             preview_files = []
             log_file = None
             granule_name = None
-            granule_name_re = re.compile(r'^S1[AB]_.*')
+            granule_name_re = re.compile(r"^S1[AB]_.*")
             for root, dirs, files in os.walk(temp_dir):
                 for file in files:
-                    if file.endswith('.README.md.txt'):
+                    if file.endswith(".README.md.txt"):
                         readme_file = os.path.join(root, file)
-                    elif file.endswith('_VV.tif'):
+                    elif file.endswith("_VV.tif"):
                         vv_tif_file = os.path.join(root, file)
-                    elif file.endswith('_VH.tif'):
+                    elif file.endswith("_VH.tif"):
                         vh_tif_file = os.path.join(root, file)
-                    elif file.endswith('.png') and '_rgb' not in file:
+                    elif file.endswith(".png") and "_rgb" not in file:
                         preview_files.append(os.path.join(root, file))
-                    elif file.endswith('.log'):
+                    elif file.endswith(".log"):
                         log_file = os.path.join(root, file)
 
             # Extract the granule name from the README file
             if readme_file:
-                with open(readme_file, 'r') as f:
+                with open(readme_file, "r") as f:
                     for line in f:
                         match = granule_name_re.match(line)
                         if match:
@@ -444,9 +466,9 @@ class SARUtils:
                             break
 
             # Create subdirectories for VV, VH, and preview images if they do not exist
-            vv_dir = os.path.join(output_dir, 'vv')
-            vh_dir = os.path.join(output_dir, 'vh')
-            preview_dir = os.path.join(output_dir, 'preview')
+            vv_dir = os.path.join(output_dir, "vv")
+            vh_dir = os.path.join(output_dir, "vh")
+            preview_dir = os.path.join(output_dir, "preview")
             os.makedirs(vv_dir, exist_ok=True)
             os.makedirs(vh_dir, exist_ok=True)
             os.makedirs(preview_dir, exist_ok=True)
@@ -472,7 +494,7 @@ class SARUtils:
             log_info = None
             if log_file and granule_name:
                 log_info = extract_log_info(log_file)
-                log_info['Granule Name'] = granule_name
+                log_info["Granule Name"] = granule_name
 
             # Remove the temporary directory
             shutil.rmtree(temp_dir)
