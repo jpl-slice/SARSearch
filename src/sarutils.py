@@ -363,7 +363,16 @@ class SARUtils:
         plt.show()
 
     def process_zip_files_in_directory(self, zip_dir, output_dir, num_processes=None):
-        # Create output directory if it does not exist
+        """
+        Process zipped ASF hyp3 products in a directory moving and organizing GeoTIFFs and producing a CSV file
+        with key information described in the log files.
+
+        Args:
+            zip_dir (str): Directory containing zipped ASF hyp3 products.
+            output_dir (str): Directory to save the processed GeoTIFFs and CSV file.
+            num_processes (int): Number of processes to use for multiprocessing.
+
+        """
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
 
@@ -417,6 +426,12 @@ class SARUtils:
                 csv_writer.writerow(result)
 
     def _collect_results(self, future):
+        """
+        Collect results from the future object and append to the shared results list.
+
+        Args:
+            future (Future): Future object from the ProcessPoolExecutor.
+        """
         try:
             result = future.result()
             with SARUtils.lock:
@@ -426,6 +441,13 @@ class SARUtils:
             self.logger.error(f"Error in future result: {e}")
 
     def _process_zip_file(self, zip_file_path, output_dir):
+        """
+        Process a single zipped ASF hyp3 product file.
+
+        Args:
+            zip_file_path (str): Path to the zipped ASF hyp3 product file.
+            output_dir (str): Directory to save the processed GeoTIFFs.
+        """
         try:
             # Create a temporary directory to extract files
             temp_dir = os.path.join(output_dir, "temp", os.path.basename(zip_file_path))
