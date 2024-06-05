@@ -65,6 +65,11 @@ def main():
     parser_apply.add_argument('--output_dir', type=str, help="Directory to save the masked GeoTIFF files")
     parser_apply.add_argument('--landcover_tif', type=str, help="Path to the landcover GeoTIFF file")
 
+    # Sub-parser for generating a tile map
+    parser_tile = subparsers.add_parser('tile_map', help="Generate a tile map from a directory of GeoTIFF files")
+    parser_tile.add_argument('--input_dir', type=str, help="Directory containing the zip files")
+    parser_tile.add_argument('--output', type=str, help="Destination file for the tile map")
+
     # Sub-parser for searching and downloading ASF frames
     parser_search = subparsers.add_parser('asf_hyp3', help="Interface with ASF hyp3. Search and download frames")
     parser_search.add_argument('config', type=str, help="Path to configuration file")

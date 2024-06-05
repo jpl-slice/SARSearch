@@ -1,8 +1,6 @@
-import rasterio
+import rasterio as rio
 import random
 import numpy as np
-import torch
-from torch.utils.data import Dataset, DataLoader
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 from rasterio.warp import reproject, Resampling
@@ -150,8 +148,8 @@ class SARUtils:
         )
 
         # Save the masked SAR image to a new file
-        sar_meta.update(dtype=rasterio.float32, nodata=np.nan)
-        with rasterio.open(output_file_path, "w", **sar_meta) as dst:
+        sar_meta.update(dtype=rio.float32, nodata=np.nan)
+        with rio.open(output_file_path, "w", **sar_meta) as dst:
             dst.write(masked_sar_image, 1)
 
         self.logger.info(f"Finished processing {sar_image_path}")
@@ -196,16 +194,9 @@ class SARUtils:
                 except Exception as e:
                     self.logger.error(f"Error processing {futures[future]}: {e}")
 
-    @staticmethod
-    def index_tiles(
-        tiff_dir: str,
-        output_file: str,
-        tile_size: int = 512,
-        land_threshold: float = 0.25,
-        stride: Union[int, float] = 1.0,
-        random_sampling: bool = False,
-        num_random_samples: int = 1000,
-    ) -> None:
+    def index_tiles(self, tiff_dir: str, output_file: str = None, tile_size: int = 512, land_threshold: float = 0.25,
+                    stride: Union[int, float] = 1.0, random_sampling: bool = False,
+                    num_random_samples: int = 1000) -> None:
         """
         Index potential valid tiles from GeoTIFF files.
 
@@ -214,13 +205,11 @@ class SARUtils:
                 output_file (str): File to save the tile index.
                 tile_size (int): Size of the square tiles to extract.
                 land_threshold (float): Maximum allowable proportion of land in a tile.
-                stride (Union[int, float]): Stride for sliding window. Can be an integer or a float representing a fraction of the tile size.
+                stride (Union[int, float]): Stride for sliding window. Can be an integer or a float representing
+                    fraction of the tile size.
                 random_sampling (bool): Whether to use random sampling instead of sliding window.
                 num_random_samples (int): Number of random samples to generate if random_sampling is True.
         """
-        logging.basicConfig(
-            level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-        )
         start_time = time.time()
 
         tile_index = []
@@ -233,13 +222,13 @@ class SARUtils:
         if random_sampling:
             # Calculate the total possible number of non-overlapping tiles
             total_image_area = sum(
-                [rasterio.open(f).width * rasterio.open(f).height for f in tiff_files]
+                [rio.open(f).width * rio.open(f).height for f in tiff_files]
             )
             tile_area = tile_size**2
             max_possible_tiles = total_image_area // tile_area
-            logging.info(f"Theoretical maxiumum number of tiles: {max_possible_tiles}")
+            self.logger.info(f"Theoretical maxiumum number of tiles: {max_possible_tiles}")
             if num_random_samples > max_possible_tiles:
-                logging.warning(
+                self.logger.warning(
                     "Requested number of random samples exceeds the feasible number of tiles."
                 )
 
@@ -247,7 +236,7 @@ class SARUtils:
         idx = index.Index()
 
         for file_path in tqdm(tiff_files, desc="Indexing tiles"):
-            with rasterio.open(file_path) as src:
+            with rio.open(file_path) as src:
                 height, width = src.height, src.width
 
                 # Calculate stride
@@ -261,7 +250,7 @@ class SARUtils:
                         # Check for duplicates using the R-tree index
                         if list(idx.intersection((x, y, x + tile_size, y + tile_size))):
                             continue
-                        window = rasterio.windows.Window(x, y, tile_size, tile_size)
+                        window = rio.windows.Window(x, y, tile_size, tile_size)
                         tile = src.read(1, window=window)
                         land_pixels = np.isnan(tile)
                         land_proportion = np.mean(land_pixels)
@@ -274,7 +263,7 @@ class SARUtils:
                 else:
                     for y in range(0, height - tile_size + 1, stride):
                         for x in range(0, width - tile_size + 1, stride):
-                            window = rasterio.windows.Window(x, y, tile_size, tile_size)
+                            window = rio.windows.Window(x, y, tile_size, tile_size)
                             tile = src.read(1, window=window)
                             land_pixels = np.isnan(tile)
                             land_proportion = np.mean(land_pixels)
@@ -285,8 +274,8 @@ class SARUtils:
             json.dump(tile_index, f)
 
         end_time = time.time()
-        logging.info(f"Indexing completed in {end_time - start_time:.2f} seconds.")
-        logging.info(f"Total tiles indexed: {len(tile_index)}")
+        self.logger.info(f"Indexing completed in {end_time - start_time:.2f} seconds.")
+        self.logger.info(f"Total tiles indexed: {len(tile_index)}")
 
     @staticmethod
     def preview_tiles(index_file: str, tile_size: int, num_tiles: int = 9) -> None:
@@ -311,7 +300,7 @@ class SARUtils:
         fig, ax = plt.subplots(1, 1, figsize=(10, 10))
 
         # Visualize the entire SAR frame with boxes representing the tiles
-        with rasterio.open(selected_frame) as src:
+        with rio.open(selected_frame) as src:
             image = src.read(1)
             ax.imshow(image, cmap="gray")
             for tile_info in selected_tiles:
@@ -339,8 +328,8 @@ class SARUtils:
             x = tile_info["x"]
             y = tile_info["y"]
 
-            with rasterio.open(file_path) as src:
-                window = rasterio.windows.Window(x, y, tile_size, tile_size)
+            with rio.open(file_path) as src:
+                window = rio.windows.Window(x, y, tile_size, tile_size)
                 tile = src.read(1, window=window)
                 tile = np.nan_to_num(tile, nan=0.0)
 
@@ -389,8 +378,7 @@ class SARUtils:
         zip_files = [os.path.join(zip_dir, f) for f in os.listdir(zip_dir) if f.endswith('.zip')]
 
         with ProcessPoolExecutor(max_workers=num_processes) as executor:
-            futures = {executor.submit(SARUtils._process_zip_file, zip_file, output_dir): zip_file for zip_file in
-                       zip_files}
+            futures = {executor.submit(self._process_zip_file, zip_file, output_dir): zip_file for zip_file in zip_files}
             for future in futures:
                 future.add_done_callback(self._collect_results)
             for future in tqdm(as_completed(futures), total=len(futures), desc="Processing zip files"):
@@ -415,8 +403,7 @@ class SARUtils:
         except Exception as e:
             self.logger.error(f"Error in future result: {e}")
 
-    @staticmethod
-    def _process_zip_file(zip_file_path, output_dir):
+    def _process_zip_file(self, zip_file_path, output_dir):
         try:
             # Create a temporary directory to extract files
             temp_dir = os.path.join(output_dir, 'temp', os.path.basename(zip_file_path))
@@ -492,6 +479,5 @@ class SARUtils:
             return log_info
 
         except Exception as e:
-            print(f"Error processing {zip_file_path}: {e}")
+            self.logger.error(f"Error processing {zip_file_path}: {e}")
             return None
-
