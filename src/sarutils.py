@@ -154,7 +154,7 @@ class SARUtils:
         with rasterio.open(output_file_path, "w", **sar_meta) as dst:
             dst.write(masked_sar_image, 1)
 
-        print(f"Finished processing {sar_image_path}")
+        self.logger.info(f"Finished processing {sar_image_path}")
 
     def process_file(self, args: Tuple[str, str]) -> None:
         """
@@ -166,29 +166,35 @@ class SARUtils:
         sar_image_path, output_dir = args
         self.apply_landmask(sar_image_path, output_dir)
 
-    def multiprocess_apply_landmask(self, input_dir: str, output_dir: str) -> None:
+    def multiprocess_apply_landmask(self, input_dir: str, output_dir: str, num_workers: int = None) -> None:
         """
         Apply the landmask to all SAR images in the input directory using multiprocessing.
 
         Args:
             input_dir (str): Directory containing the SAR image GeoTIFF files.
             output_dir (str): Directory to save the masked SAR images.
+            num_workers (int, optional): Number of worker processes. Defaults to the number of CPU cores.
         """
-        # Ensure the output directory exists
         os.makedirs(output_dir, exist_ok=True)
-
-        # Get list of all GeoTIFF files in the input directory
+        # Get a list of all GeoTIFF files in the input directory
         tif_files = [
             os.path.join(input_dir, f)
             for f in os.listdir(input_dir)
             if f.endswith(".tif")
         ]
+        if num_workers is None:
+            num_workers = cpu_count()
 
         # Create a pool of worker processes
-        with Pool(cpu_count()) as pool:
-            pool.map(
-                self.process_file, [(file_path, output_dir) for file_path in tif_files]
-            )
+        with ProcessPoolExecutor(max_workers=num_workers) as executor:
+            futures = {executor.submit(self.process_file, (file_path, output_dir)): file_path for file_path in
+                       tif_files}
+
+            for future in tqdm(as_completed(futures), total=len(futures), desc="Processing files"):
+                try:
+                    future.result()
+                except Exception as e:
+                    self.logger.error(f"Error processing {futures[future]}: {e}")
 
     @staticmethod
     def index_tiles(

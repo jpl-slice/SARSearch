@@ -79,11 +79,11 @@ def main():
     logger = setup_logger()
 
     if args.command == 'process_zip':
-        sar_utils = SARUtils(logger)
+        sar_utils = SARUtils(logger=logger)
         sar_utils.process_zip_files_in_directory(args.input_dir, args.output_dir, num_processes=args.num_processes)
         logger.info(f"Processed and extracted zip files from {args.input_dir} to {args.output_dir}")
     elif args.command == 'apply_landmask':
-        sar_utils = SARUtils(args.landcover_tif)
+        sar_utils = SARUtils(logger, landcover_tif_path=args.landcover_tif)
         sar_utils.multiprocess_apply_landmask(args.input_dir, args.output_dir)
         logger.info(f"Applied landmask to files in {args.input_dir} and saved to {args.output_dir}")
     elif args.command == 'asf_hyp3':
