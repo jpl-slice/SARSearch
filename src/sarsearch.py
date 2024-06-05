@@ -1,9 +1,9 @@
 import argparse
 import sys
+import logging
 from asf_client import ASFClient
 from sarutils import SARUtils
 from config import load_config
-from logger import setup_logger
 
 
 def process_zip_files(zip_dir: str, dest_dir: str):
@@ -44,6 +44,15 @@ def asf_hyp3(config: dict, logger):
         logger.error("No action specified")
         sys.exit(1)
     logger.info(f"Submitted jobs to ASF HyP3")
+
+
+def int_or_float(value):
+    try:
+        # Try converting to integer
+        return int(value)
+    except ValueError:
+        # If it fails, try converting to float
+        return float(value)
 
 
 def main():
@@ -92,10 +101,25 @@ def main():
         "--input_dir", type=str, help="Directory containing the zip files"
     )
     parser_tile.add_argument(
-        "--output",
+        "--output_file",
         type=str,
         help="Destination file for the tile map",
-        default="tile_map.csv",
+        default="SAR_tile_map.csv",
+    )
+    parser_tile.add_argument(
+        "--tile_size", type=int, help="Size of the tiles in pixels", default=500
+    )
+    parser_tile.add_argument(
+        "--land_threshold", type=float, help="Threshold for land classification", default=0.1
+    )
+    parser_tile.add_argument(
+        "--stride", type=int_or_float, help="Stride for the sliding window", default=0.5
+    )
+    parser_tile.add_argument(
+        "--random_sampling", type=bool, help="Randomly sample tiles", default=False
+    )
+    parser_tile.add_argument(
+        "--num_random_samples", type=int, help="Number of random samples", default=1000
     )
 
     # Sub-parser for searching and downloading ASF frames
@@ -119,7 +143,8 @@ def main():
     )
 
     args = parser.parse_args()
-    logger = setup_logger()
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    logger = logging.getLogger(__name__)
 
     if args.command == "process_zip":
         sar_utils = SARUtils(logger=logger)
@@ -134,6 +159,17 @@ def main():
         sar_utils.multiprocess_apply_landmask(args.input_dir, args.output_dir)
         logger.info(
             f"Applied landmask to files in {args.input_dir} and saved to {args.output_dir}"
+        )
+    elif args.command == "tile_map":
+        sar_utils = SARUtils(logger)
+        sar_utils.generate_tile_map(
+            args.input_dir,
+            args.output_file,
+            tile_size=args.tile_size,
+            land_threshold=args.land_threshold,
+            stride=args.stride,
+            random_sampling=args.random_sampling,
+            num_random_samples=args.num_random_samples,
         )
     elif args.command == "asf_hyp3":
         config = load_config(args.config)

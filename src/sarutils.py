@@ -74,7 +74,7 @@ class SARUtils:
     manager = Manager()
     results = manager.list()
 
-    def __init__(self, logger, landcover_tif_path: str = None):
+    def __init__(self, logger: logging = None, landcover_tif_path: str = None):
         """
         Initialize the SARUtils class with the path to the landcover GeoTIFF file.
 
@@ -84,12 +84,16 @@ class SARUtils:
         self.landcover_data = None
         self.logger = logger
 
+        if self.logger is None:
+            logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+            self.logger = logging.getLogger(__name__)
+
         if landcover_tif_path:
             try:
                 self.landcover_tif_path = landcover_tif_path
 
                 # Read the landcover GeoTIFF and store the data and metadata
-                with rasterio.open(landcover_tif_path) as land_src:
+                with rio.open(landcover_tif_path) as land_src:
                     self.landcover_data = land_src.read(1)
                     self.land_transform = land_src.transform
                     self.land_crs = land_src.crs
@@ -106,7 +110,7 @@ class SARUtils:
             sar_image_path (str): Path to the SAR image GeoTIFF file.
             output_dir (str): Directory to save the masked SAR image.
         """
-        with rasterio.open(sar_image_path) as src:
+        with rio.open(sar_image_path) as src:
             # Read the SAR image data
             sar_image = src.read(1)
             no_data_value = src.nodata
@@ -200,7 +204,7 @@ class SARUtils:
                 except Exception as e:
                     self.logger.error(f"Error processing {futures[future]}: {e}")
 
-    def index_tiles(
+    def generate_tile_map(
         self,
         tiff_dir: str,
         output_file: str = None,
@@ -211,7 +215,7 @@ class SARUtils:
         num_random_samples: int = 1000,
     ) -> None:
         """
-        Index potential valid tiles from GeoTIFF files.
+        Create an index of tiles from the landmasked GeoTIFFs in the input directory.
 
         Args:
                 tiff_dir (str): Directory containing the landmasked GeoTIFFs.
@@ -317,7 +321,7 @@ class SARUtils:
         # Visualize the entire SAR frame with boxes representing the tiles
         with rio.open(selected_frame) as src:
             image = src.read(1)
-            ax.imshow(image, cmap="gray")
+            ax.imshow(image, cmap="gray", vmin=np.nanmin(image), vmax=np.nanmax(image))
             for tile_info in selected_tiles:
                 x = tile_info["x"]
                 y = tile_info["y"]
@@ -346,10 +350,10 @@ class SARUtils:
             with rio.open(file_path) as src:
                 window = rio.windows.Window(x, y, tile_size, tile_size)
                 tile = src.read(1, window=window)
-                tile = np.nan_to_num(tile, nan=0.0)
+                #tile = np.nan_to_num(tile, nan=0.0)
 
             ax = axes[i // n, i % n]
-            ax.imshow(tile, cmap="gray")
+            ax.imshow(tile, cmap="gray", vmin=np.nanmin(tile), vmax=np.nanmax(tile))
             ax.set_title(f"Tile {i + 1}")
 
         # Hide unused subplots
