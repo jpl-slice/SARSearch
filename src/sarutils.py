@@ -304,12 +304,13 @@ class SARUtils:
         self.logger.info(f"Total tiles indexed: {len(tile_index)}")
 
     @staticmethod
-    def preview_tiles(index_file: str, num_tiles: int = 9) -> None:
+    def preview_tiles(index_file: str, sar_frame: str = None, num_tiles: int = 9) -> None:
         """
         Preview tiles from the indexed tiles.
 
         Args:
             index_file (str): Path to the JSON file containing the tile index.
+            sar_frame (str): Optional path to the specific SAR frame to preview.
             num_tiles (int): Number of tiles to preview.
         """
         with open(index_file, "r") as f:
@@ -319,11 +320,14 @@ class SARUtils:
         tile_size = tile_index['tile_size']
         tile_index = tile_index['tiles']
 
-        # Randomly select one frame
-        selected_frame = random.choice(tile_index)["file"]
-        selected_tiles = [tile for tile in tile_index if tile["file"] == selected_frame]
+        if sar_frame is None:
+            selected_frame = random.choice(tile_index)["file"]
+        else:
+            selected_frame = sar_frame
+
+        total_tiles = [tile for tile in tile_index if tile["file"] == selected_frame]
         selected_tiles = random.sample(
-            selected_tiles, min(num_tiles, len(selected_tiles))
+            total_tiles, min(num_tiles, len(total_tiles))
         )
 
         # Visualize the entire SAR frame with boxes representing the tiles
@@ -343,9 +347,10 @@ class SARUtils:
                     facecolor="none",
                 )
                 ax.add_patch(rect)
-            ax.set_title("SAR Frame with Selected Tiles")
-
+            ax.set_title(f"SAR Frame: {base_dir}/{selected_frame}")
         plt.show()
+        print(f"Frame {selected_frame} has {len(total_tiles)} tiles.")
+        print(f"Selected frame: {selected_frame}")
 
         # Display nxn grid of selected tiles
         n = int(np.ceil(np.sqrt(num_tiles)))
