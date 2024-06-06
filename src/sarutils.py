@@ -212,7 +212,7 @@ class SARUtils:
         land_threshold: float = 0.25,
         stride: Union[int, float] = 1.0,
         random_sampling: bool = False,
-        num_random_samples: int = 1000,
+        num_random_samples: int = None,
     ) -> None:
         """
         Create an index of tiles from the landmasked GeoTIFFs in the input directory.
@@ -230,11 +230,7 @@ class SARUtils:
         start_time = time.time()
 
         tile_index = []
-        tiff_files = [
-            os.path.join(tiff_dir, f)
-            for f in os.listdir(tiff_dir)
-            if f.endswith(".tif")
-        ]
+        tiff_files = [f for f in os.listdir(tiff_dir) if f.endswith(".tif")]
 
         if random_sampling:
             # Calculate the total possible number of non-overlapping tiles
@@ -254,7 +250,8 @@ class SARUtils:
         # Create an R-tree index for efficient spatial querying
         idx = index.Index()
 
-        for file_path in tqdm(tiff_files, desc="Indexing tiles"):
+        for file in tqdm(tiff_files, desc="Indexing tiles"):
+            file_path = os.path.join(tiff_dir, file)
             with rio.open(file_path) as src:
                 height, width = src.height, src.width
 
@@ -274,7 +271,7 @@ class SARUtils:
                         land_pixels = np.isnan(tile)
                         land_proportion = np.mean(land_pixels)
                         if land_proportion <= land_threshold:
-                            tile_index.append({"file": file_path, "x": x, "y": y})
+                            tile_index.append({"file": file, "x": x, "y": y})
                             idx.insert(
                                 len(tile_index) - 1,
                                 (x, y, x + tile_size, y + tile_size),
@@ -287,27 +284,40 @@ class SARUtils:
                             land_pixels = np.isnan(tile)
                             land_proportion = np.mean(land_pixels)
                             if land_proportion <= land_threshold:
-                                tile_index.append({"file": file_path, "x": x, "y": y})
+                                tile_index.append({"file": file, "x": x, "y": y})
+
+        tile_index_data = {
+            "base_dir": tiff_dir,
+            "tile_size": tile_size,
+            "land_threshold": land_threshold,
+            "stride": stride,
+            "random_sampling": random_sampling,
+            "num_random_samples": num_random_samples,
+            "tiles": tile_index,
+        }
 
         with open(output_file, "w") as f:
-            json.dump(tile_index, f)
+            json.dump(tile_index_data, f)
 
         end_time = time.time()
         self.logger.info(f"Indexing completed in {end_time - start_time:.2f} seconds.")
         self.logger.info(f"Total tiles indexed: {len(tile_index)}")
 
     @staticmethod
-    def preview_tiles(index_file: str, tile_size: int, num_tiles: int = 9) -> None:
+    def preview_tiles(index_file: str, num_tiles: int = 9) -> None:
         """
         Preview tiles from the indexed tiles.
 
         Args:
             index_file (str): Path to the JSON file containing the tile index.
-            tile_size (int): Size of the square tiles to extract.
             num_tiles (int): Number of tiles to preview.
         """
         with open(index_file, "r") as f:
             tile_index = json.load(f)
+
+        base_dir = tile_index['base_dir']
+        tile_size = tile_index['tile_size']
+        tile_index = tile_index['tiles']
 
         # Randomly select one frame
         selected_frame = random.choice(tile_index)["file"]
@@ -316,10 +326,9 @@ class SARUtils:
             selected_tiles, min(num_tiles, len(selected_tiles))
         )
 
-        fig, ax = plt.subplots(1, 1, figsize=(10, 10))
-
         # Visualize the entire SAR frame with boxes representing the tiles
-        with rio.open(selected_frame) as src:
+        fig, ax = plt.subplots(1, 1, figsize=(10, 10))
+        with rio.open(os.path.join(base_dir, selected_frame)) as src:
             image = src.read(1)
             ax.imshow(image, cmap="gray", vmin=np.nanmin(image), vmax=np.nanmax(image))
             for tile_info in selected_tiles:
@@ -343,14 +352,13 @@ class SARUtils:
         fig, axes = plt.subplots(n, n, figsize=(15, 15))
 
         for i, tile_info in enumerate(selected_tiles):
-            file_path = tile_info["file"]
+            file = tile_info["file"]
             x = tile_info["x"]
             y = tile_info["y"]
 
-            with rio.open(file_path) as src:
+            with rio.open(os.path.join(base_dir, file)) as src:
                 window = rio.windows.Window(x, y, tile_size, tile_size)
                 tile = src.read(1, window=window)
-                #tile = np.nan_to_num(tile, nan=0.0)
 
             ax = axes[i // n, i % n]
             ax.imshow(tile, cmap="gray", vmin=np.nanmin(tile), vmax=np.nanmax(tile))
