@@ -5,13 +5,6 @@ from sarutils import SARUtils
 from config import load_config
 from logger import setup_logger
 from typing import Union
-def asf_hyp3(config: dict, logger):
-    """
-    Interface with ASF HyP3.
-    """
-    client = ASFClient(config, logger)
-
-
 
 
 def int_or_float(value: Union[str, int, float]):
@@ -28,8 +21,16 @@ def int_or_float(value: Union[str, int, float]):
         # If it fails, try converting to float
         return float(value)
 
+
 def merge_config_with_args(config, args):
-    # Convert argparse namespace to dictionary and remove None values
+    """
+    Utility function to convert argparse namespace to dictionary and remove None values
+
+    Args:
+        config: Configuration dictionary
+        args: argparse namespace object
+
+    """
     args_dict = {k: v for k, v in vars(args).items() if v is not None}
 
     # Remove 'config' key since it's not part of the actual configuration
@@ -40,9 +41,10 @@ def merge_config_with_args(config, args):
 
     return config
 
+
 def main():
     """
-    Main function to parse command-line arguments and initiate actions based on those arguments.
+    Main function to parse command-line arguments
     """
     logger = setup_logger()
 
