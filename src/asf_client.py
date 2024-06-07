@@ -18,6 +18,7 @@ class ASFClient:
         self.hyp3 = sdk.HyP3(
             username=config["hyp3_username"], password=config["hyp3_password"]
         )
+        self.succeeded_jobs = None
 
     def submit_jobs(self):
         """
@@ -63,16 +64,27 @@ class ASFClient:
             job.download_files(output_dir)
             self.logger.info(f"Downloaded files for job {job.job_id} to {output_dir}")
 
-    def check_status(self):
+    def check_status(self, job_name=None):
         """
         Checks the status of submitted jobs.
         """
-        job_name = self.config.get("job_name", "ASF_job")
         jobs = self.hyp3.find_jobs(name=job_name)
-        succeeded = jobs.filter_jobs(succeeded=True)
-        failed = jobs.filter_jobs(failed=True)
-        running = jobs.filter_jobs(running=True)
+        succeeded_jobs = jobs.filter_jobs(succeeded=True, running=False, failed=False)
+        failed_jobs = jobs.filter_jobs(succeeded=False, running=False, failed=True)
+        running_jobs = jobs.filter_jobs(succeeded=False, running=True, failed=True)
 
+        self.logger.info(f"Report for job {job_name}:")
         self.logger.info(
-            f"Job Status - Succeeded: {len(succeeded)}, Failed: {len(failed)}, Running: {len(running)}"
+            f"Job Status - Succeeded: {len(succeeded_jobs)}, Failed: {len(failed_jobs)}, Running: {len(running_jobs)}"
         )
+
+    def download(self, job_name: str, output_dir: str) -> None:
+        """
+        Downloads the files for a specific job.
+        """
+        jobs = self.hyp3.find_jobs(name=job_name)
+        succeeded_jobs = jobs.filter_jobs(succeeded=True, running=False, failed=False)
+        self.logger.info(f"Found {len(succeeded_jobs)} succeeded jobs for {job_name}. Downloading files...")
+        file_list = succeeded_jobs.download_files(output_dir)
+        self.logger.info(f"Downloaded files for job {job_name} to {output_dir}")
+

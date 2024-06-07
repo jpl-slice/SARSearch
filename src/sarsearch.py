@@ -5,27 +5,13 @@ from sarutils import SARUtils
 from config import load_config
 from logger import setup_logger
 from typing import Union
-
 def asf_hyp3(config: dict, logger):
     """
     Interface with ASF HyP3.
     """
     client = ASFClient(config, logger)
 
-    if args.granule_file:
-        with open(args.granule_file, "r") as f:
-            config["granules"] = [line.strip() for line in f if line.strip()]
 
-    if args.submit:
-        client.submit_jobs()
-    elif args.download:
-        client.download_jobs()
-    elif args.status:
-        client.check_status()
-    else:
-        logger.error("No action specified")
-        sys.exit(1)
-    logger.info(f"Submitted jobs to ASF HyP3")
 
 
 def int_or_float(value: Union[str, int, float]):
@@ -41,6 +27,18 @@ def int_or_float(value: Union[str, int, float]):
     except ValueError:
         # If it fails, try converting to float
         return float(value)
+
+def merge_config_with_args(config, args):
+    # Convert argparse namespace to dictionary and remove None values
+    args_dict = {k: v for k, v in vars(args).items() if v is not None}
+
+    # Remove 'config' key since it's not part of the actual configuration
+    args_dict.pop('config', None)
+
+    # Update config dictionary with command line arguments
+    config.update(args_dict)
+
+    return config
 
 def main():
     """
@@ -114,20 +112,19 @@ def main():
     parser_search = subparsers.add_parser(
         "asf_hyp3", help="Interface with ASF hyp3. Search and download frames"
     )
-    parser_search.add_argument("config", type=str, help="Path to configuration file")
-    parser_search.add_argument("username", type=str, help="ASF username")
-    parser_search.add_argument("password", type=str, help="ASF password")
+    parser_search.add_argument("--config", type=str, help="Path to configuration file")
+    parser_search.add_argument("--hyp3_username", type=str, help="ASF username")
+    parser_search.add_argument("--hyp3_password", type=str, help="ASF password")
     parser_search.add_argument(
-        "granule-file", type=str, help="File path for granule list"
+        "--granule-file", type=str, help="File path for granule list", default=None
     )
     parser_search.add_argument(
-        "download", type=str, help="Download completed jobs to this directory"
+        "--download", type=str, help="Download completed jobs to this directory"
     )
+    parser_search.add_argument("--job_name", type=str, help="Name of the job", default=None)
     parser_search.add_argument(
-        "search_params", type=str, help="JSON string of search parameters"
-    )
-    parser_search.add_argument(
-        "status", help="Check status of submitted jobs", action="store_true"
+        "--status", type=str, help="Check status of a submitted job. Argument is job name",
+        default=None
     )
 
     args = parser.parse_args()
@@ -159,10 +156,32 @@ def main():
         )
     elif args.command == "asf_hyp3":
         config = load_config(args.config)
-        asf_hyp3(config, logger=logger)
-    else:
-        logger.error("No command specified")
-        sys.exit(1)
+        config = merge_config_with_args(config, args)
+
+        try:
+            asf_client = ASFClient(config=config, logger=logger)
+        except Exception as e:
+            logger.error(f"Error initializing ASFClient: {e}")
+            sys.exit(1)
+
+        if 'granule_file' in config and config['granule_file'] is not None:
+            with open(config['granule_file'], "r") as f:
+                config["granules"] = [line.strip() for line in f if line.strip()]
+
+        if 'submit' in config and config['submit'] is not None:
+            asf_client.submit_jobs()
+        elif args.status:
+            asf_client.check_status(config['status'])
+        elif args.download:
+            if 'job_name' in config and config['job_name'] is not None:
+                asf_client.download(job_name=config['job_name'], output_dir=config['download'])
+            else:
+                logger.error("job_name not specified. Cannot download jobs without --job_name")
+                sys.exit(1)
+        else:
+            logger.error("No action specified")
+            sys.exit(1)
+        logger.info(f"Submitted jobs to ASF HyP3")
 
 
 if __name__ == "__main__":
