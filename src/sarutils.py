@@ -158,15 +158,7 @@ class SARUtils:
 
         self.logger.info(f"Finished processing {sar_image_path}")
 
-    def process_file(self, args: Tuple[str, str]) -> None:
-        """
-        Wrapper function to process a single SAR image file.
 
-        Args:
-            args (Tuple[str, str]): Tuple containing the SAR image path and output directory.
-        """
-        sar_image_path, output_dir = args
-        self.apply_landmask(sar_image_path, output_dir)
 
     def multiprocess_apply_landmask(
         self, input_dir: str, output_dir: str, num_workers: int = None
@@ -192,7 +184,7 @@ class SARUtils:
         # Create a pool of worker processes
         with ProcessPoolExecutor(max_workers=num_workers) as executor:
             futures = {
-                executor.submit(self.process_file, (file_path, output_dir)): file_path
+                executor.submit(self._landmask_file, (file_path, output_dir)): file_path
                 for file_path in tif_files
             }
 
@@ -213,19 +205,24 @@ class SARUtils:
         stride: Union[int, float] = 1.0,
         random_sampling: bool = False,
         num_random_samples: int = None,
+        num_workers: int = None,
     ) -> None:
         """
         Create an index of tiles from the landmasked GeoTIFFs in the input directory.
 
         Args:
-                tiff_dir (str): Directory containing the landmasked GeoTIFFs.
-                output_file (str): File to save the tile index.
-                tile_size (int): Size of the square tiles to extract.
-                land_threshold (float): Maximum allowable proportion of land in a tile.
-                stride (Union[int, float]): Stride for sliding window. Can be an integer or a float representing
-                    fraction of the tile size.
-                random_sampling (bool): Whether to use random sampling instead of sliding window.
-                num_random_samples (int): Number of random samples to generate if random_sampling is True.
+            tiff_dir (str): Directory containing the landmasked GeoTIFFs.
+            output_file (str): File to save the tile index.
+            tile_size (int): Size of the square tiles to extract.
+            land_threshold (float): Maximum allowable proportion of land in a tile.
+            stride (Union[int, float]): Stride for sliding window. Can be an integer or a float representing
+                                        a fraction of the tile size.
+            random_sampling (bool): Whether to use random sampling instead of sliding window.
+            num_random_samples (int): Number of random samples to generate if random_sampling is True.
+            num_workers (int): Number of worker processes to use. Defaults to the number of CPUs available.
+
+        Returns:
+            None
         """
         start_time = time.time()
 
@@ -233,58 +230,34 @@ class SARUtils:
         tiff_files = [f for f in os.listdir(tiff_dir) if f.endswith(".tif")]
 
         if random_sampling:
-            # Calculate the total possible number of non-overlapping tiles
             total_image_area = sum(
-                [rio.open(f).width * rio.open(f).height for f in tiff_files]
+                [rio.open(os.path.join(tiff_dir, f)).width * rio.open(os.path.join(tiff_dir, f)).height for f in tiff_files]
             )
             tile_area = tile_size**2
             max_possible_tiles = total_image_area // tile_area
             self.logger.info(
-                f"Theoretical maxiumum number of tiles: {max_possible_tiles}"
+                f"Theoretical maximum number of tiles: {max_possible_tiles}"
             )
             if num_random_samples > max_possible_tiles:
                 self.logger.warning(
                     "Requested number of random samples exceeds the feasible number of tiles."
                 )
 
-        # Create an R-tree index for efficient spatial querying
-        idx = index.Index()
+        if num_workers is None:
+            num_workers = os.cpu_count()
 
-        for file in tqdm(tiff_files, desc="Indexing tiles"):
-            file_path = os.path.join(tiff_dir, file)
-            with rio.open(file_path) as src:
-                height, width = src.height, src.width
-
-                # Calculate stride
-                if isinstance(stride, float):
-                    stride = int(tile_size * stride)
-
-                if random_sampling:
-                    for _ in range(num_random_samples):
-                        x = random.randint(0, width - tile_size)
-                        y = random.randint(0, height - tile_size)
-                        # Check for duplicates using the R-tree index
-                        if list(idx.intersection((x, y, x + tile_size, y + tile_size))):
-                            continue
-                        window = rio.windows.Window(x, y, tile_size, tile_size)
-                        tile = src.read(1, window=window)
-                        land_pixels = np.isnan(tile)
-                        land_proportion = np.mean(land_pixels)
-                        if land_proportion <= land_threshold:
-                            tile_index.append({"file": file, "x": x, "y": y})
-                            idx.insert(
-                                len(tile_index) - 1,
-                                (x, y, x + tile_size, y + tile_size),
-                            )
-                else:
-                    for y in range(0, height - tile_size + 1, stride):
-                        for x in range(0, width - tile_size + 1, stride):
-                            window = rio.windows.Window(x, y, tile_size, tile_size)
-                            tile = src.read(1, window=window)
-                            land_pixels = np.isnan(tile)
-                            land_proportion = np.mean(land_pixels)
-                            if land_proportion <= land_threshold:
-                                tile_index.append({"file": file, "x": x, "y": y})
+        with ProcessPoolExecutor(max_workers=num_workers) as executor:
+            args = [
+                (file, tiff_dir, tile_size, land_threshold, stride, random_sampling, num_random_samples)
+                for file in tiff_files
+            ]
+            futures = {executor.submit(SARUtils._tilemap_file, arg): arg for arg in args}
+            for future in tqdm(as_completed(futures), total=len(futures), desc="Indexing tiles"):
+                try:
+                    result = future.result()
+                    tile_index.extend(result)
+                except Exception as e:
+                    self.logger.error(f"Error processing {futures[future]}: {e}")
 
         tile_index_data = {
             "base_dir": tiff_dir,
@@ -297,7 +270,7 @@ class SARUtils:
         }
 
         if output_file is None:
-               output_file = f"SAR_tile_map_ts{tile_size}_stride{stride}_land{land_threshold}_tiles{len(tile_index)}.json"
+            output_file = f"SAR_tile_map_ts{tile_size}_stride{stride}_land{land_threshold}_tiles{len(tile_index)}.json"
 
         with open(output_file, "w") as f:
             json.dump(tile_index_data, f)
@@ -459,6 +432,66 @@ class SARUtils:
             self.logger.info(f"Processed {result['Granule Name']}")
         except Exception as e:
             self.logger.error(f"Error in future result: {e}")
+
+    def _landmask_file(self, args: Tuple[str, str]) -> None:
+        """
+        Wrapper function to landmask a single SAR image file.
+
+        Args:
+            args (Tuple[str, str]): Tuple containing the SAR image path and output directory.
+        """
+        sar_image_path, output_dir = args
+        self.apply_landmask(sar_image_path, output_dir)
+
+    @staticmethod
+    def _tilemap_file(args):
+        """
+        Process a single GeoTIFF file to generate tile indices.
+
+        Args:
+            args (tuple): A tuple containing the parameters needed for processing:
+                          (file, tiff_dir, tile_size, land_threshold, stride, random_sampling, num_random_samples).
+
+        Returns:
+            list: A list of tile indices generated from the GeoTIFF file.
+        """
+        file, tiff_dir, tile_size, land_threshold, stride, random_sampling, num_random_samples = args
+        tile_index = []
+        file_path = os.path.join(tiff_dir, file)
+        idx = index.Index()
+
+        with rio.open(file_path) as src:
+            height, width = src.height, src.width
+            if isinstance(stride, float):
+                stride = int(tile_size * stride)
+
+            if random_sampling:
+                for _ in range(num_random_samples):
+                    x = random.randint(0, width - tile_size)
+                    y = random.randint(0, height - tile_size)
+                    if list(idx.intersection((x, y, x + tile_size, y + tile_size))):
+                        continue
+                    window = rio.windows.Window(x, y, tile_size, tile_size)
+                    tile = src.read(1, window=window)
+                    land_pixels = np.isnan(tile)
+                    land_proportion = np.mean(land_pixels)
+                    if land_proportion <= land_threshold:
+                        tile_index.append({"file": file, "x": x, "y": y})
+                        idx.insert(
+                            len(tile_index) - 1,
+                            (x, y, x + tile_size, y + tile_size),
+                        )
+            else:
+                for y in range(0, height - tile_size + 1, stride):
+                    for x in range(0, width - tile_size + 1, stride):
+                        window = rio.windows.Window(x, y, tile_size, tile_size)
+                        tile = src.read(1, window=window)
+                        land_pixels = np.isnan(tile)
+                        land_proportion = np.mean(land_pixels)
+                        if land_proportion <= land_threshold:
+                            tile_index.append({"file": file, "x": x, "y": y})
+
+        return tile_index
 
     def _process_zip_file(self, zip_file_path, output_dir):
         """
