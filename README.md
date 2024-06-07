@@ -74,6 +74,8 @@ granule list file path if not using the command line option.
 ```    
     
 ### Generate (Ocean) Tile Map:
+![Tile example](images/tile_map_example.png)
+
 Generate tile map functionality facilitates segmenting ocean areas into tiles. 
 This creates a tile map from a directory of GeoTIFF SAR frames. User configurable tiles can be cut from the GeoTIFF 
 images across ocean areas. Land areas are avoided through the use of `land_threshold` parameters.
