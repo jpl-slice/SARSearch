@@ -296,6 +296,9 @@ class SARUtils:
             "tiles": tile_index,
         }
 
+        if output_file is None:
+               output_file = f"SAR_tile_map_ts{tile_size}_stride{stride}_land{land_threshold}_tiles{len(tile_index)}.json"
+
         with open(output_file, "w") as f:
             json.dump(tile_index_data, f)
 

@@ -4,6 +4,9 @@
 
 # Data
 *.csv
+*.json
+*.yaml
+*.yml
 
 ### JupyterNotebooks ###
 # gitignore template for Jupyter Notebooks

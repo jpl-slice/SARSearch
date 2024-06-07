@@ -1,28 +1,10 @@
 import argparse
 import sys
-import logging
 from asf_client import ASFClient
 from sarutils import SARUtils
 from config import load_config
-
-
-def process_zip_files(zip_dir: str, dest_dir: str):
-    """
-    Process zip files from ASF and extract them to the destination directory.
-    """
-    sar_utils = SARUtils()
-    sar_utils.process_zip_files_in_directory(zip_dir, dest_dir)
-    logger.info(f"Processed and extracted zip files from {zip_dir} to {dest_dir}")
-
-
-def apply_landmask_to_files(input_dir: str, output_dir: str, landcover_tif: str):
-    """
-    Apply the landmask to already downloaded files.
-    """
-    sar_utils = SARUtils(landcover_tif)
-    sar_utils.multiprocess_apply_landmask(input_dir, output_dir)
-    logger.info(f"Applied landmask to files in {input_dir} and saved to {output_dir}")
-
+from logger import setup_logger
+from typing import Union
 
 def asf_hyp3(config: dict, logger):
     """
@@ -46,7 +28,13 @@ def asf_hyp3(config: dict, logger):
     logger.info(f"Submitted jobs to ASF HyP3")
 
 
-def int_or_float(value):
+def int_or_float(value: Union[str, int, float]):
+    """
+    Utility function to convert a string to an integer or float.
+
+    Args:
+        value: The value to convert.
+    """
     try:
         # Try converting to integer
         return int(value)
@@ -54,11 +42,12 @@ def int_or_float(value):
         # If it fails, try converting to float
         return float(value)
 
-
 def main():
     """
     Main function to parse command-line arguments and initiate actions based on those arguments.
     """
+    logger = setup_logger()
+
     parser = argparse.ArgumentParser(
         description="SARSearch: a tool for processing SAR data from ASF"
     )
@@ -103,8 +92,7 @@ def main():
     parser_tile.add_argument(
         "--output_file",
         type=str,
-        help="Destination file for the tile map",
-        default="SAR_tile_map.csv",
+        help="Destination file for the tile map"
     )
     parser_tile.add_argument(
         "--tile_size", type=int, help="Size of the tiles in pixels", default=500
@@ -143,8 +131,6 @@ def main():
     )
 
     args = parser.parse_args()
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-    logger = logging.getLogger(__name__)
 
     if args.command == "process_zip":
         sar_utils = SARUtils(logger=logger)
