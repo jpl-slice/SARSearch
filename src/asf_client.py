@@ -23,6 +23,7 @@ class ASFClient:
     def submit_jobs(self):
         """
         Submits jobs to ASF HyP3 for processing.
+
         """
         granules = self.config.get("granules", [])
         if not granules:
@@ -30,13 +31,15 @@ class ASFClient:
             return
 
         batch = sdk.Batch()
+        self.logger.info(f"Submitting jobs for {len(granules)} granules with the following configuration: {self.config}")
         for granule in granules:
             try:
                 job = self.hyp3.submit_rtc_job(
                     granule=granule,
                     resolution=self.config.get("resolution", 30),
-                    scale=self.config.get("scale", "power"),
+                    scale=self.config.get("scale", "decibel"),
                     speckle_filter=self.config.get("speckle_filter", True),
+                    radiometry=self.config.get("radiometry", "sigma0"),
                     name=self.config.get("job_name", "ASF_job"),
                 )
                 batch += job

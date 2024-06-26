@@ -158,8 +158,6 @@ class SARUtils:
 
         self.logger.info(f"Finished processing {sar_image_path}")
 
-
-
     def multiprocess_apply_landmask(
         self, input_dir: str, output_dir: str, num_workers: int = None
     ) -> None:

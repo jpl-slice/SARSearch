@@ -104,27 +104,31 @@ def main():
         "--stride", type=int_or_float, help="Stride for the sliding window", default=0.5
     )
     parser_tile.add_argument(
-        "--random_sampling", type=bool, help="Randomly sample tiles", default=False
+        "--random_sampling", help="Randomly sample tiles", action="store_true"
     )
     parser_tile.add_argument(
         "--num_random_samples", type=int, help="Number of random samples", default=1000
     )
 
-    # Sub-parser for searching and downloading ASF frames
-    parser_search = subparsers.add_parser(
+    # Sub-parser for interacting with ASF Hyp3
+    parser_hyp3 = subparsers.add_parser(
         "asf_hyp3", help="Interface with ASF hyp3. Search and download frames"
     )
-    parser_search.add_argument("--config", type=str, help="Path to configuration file")
-    parser_search.add_argument("--hyp3_username", type=str, help="ASF username")
-    parser_search.add_argument("--hyp3_password", type=str, help="ASF password")
-    parser_search.add_argument(
-        "--granule-file", type=str, help="File path for granule list", default=None
+    parser_hyp3.add_argument("--config", type=str, help="Path to configuration file")
+    parser_hyp3.add_argument("--hyp3_username", type=str, help="ASF username")
+    parser_hyp3.add_argument("--hyp3_password", type=str, help="ASF password")
+    parser_hyp3.add_argument("--job_name", type=str, help="Name of the job", default=None)
+    parser_hyp3.add_argument("--granule_file", type=str, help="File containing granule IDs", default=None)
+
+    # Add mutually exclusive group for submitting jobs, checking status, and downloading
+    hyp3_group = parser_hyp3.add_mutually_exclusive_group()
+    hyp3_group.add_argument(
+        "--submit", help="Submit jobs to ASF HyP3", action="store_true"
     )
-    parser_search.add_argument(
+    hyp3_group.add_argument(
         "--download", type=str, help="Download completed jobs to this directory"
     )
-    parser_search.add_argument("--job_name", type=str, help="Name of the job", default=None)
-    parser_search.add_argument(
+    parser_hyp3.add_argument(
         "--status", type=str, help="Check status of a submitted job. Argument is job name",
         default=None
     )
@@ -166,12 +170,12 @@ def main():
             logger.error(f"Error initializing ASFClient: {e}")
             sys.exit(1)
 
-        if 'granule_file' in config and config['granule_file'] is not None:
-            with open(config['granule_file'], "r") as f:
-                config["granules"] = [line.strip() for line in f if line.strip()]
-
+        # Check if we are submitting jobs, checking status, or downloading
         if 'submit' in config and config['submit'] is not None:
-            asf_client.submit_jobs()
+            if 'granule_file' in config and config['granule_file'] is not None:
+                with open(config['granule_file'], "r") as f:
+                    config["granules"] = [line.strip() for line in f if line.strip()]
+                asf_client.submit_jobs()
         elif args.status:
             asf_client.check_status(config['status'])
         elif args.download:
