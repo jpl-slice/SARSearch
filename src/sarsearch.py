@@ -129,8 +129,7 @@ def main():
         "--download", type=str, help="Download completed jobs to this directory"
     )
     parser_hyp3.add_argument(
-        "--status", type=str, help="Check status of a submitted job. Argument is job name",
-        default=None
+        "--status", action="store_true", help="Check status of a submitted job. Argument is job name"
     )
 
     args = parser.parse_args()
@@ -171,14 +170,15 @@ def main():
             sys.exit(1)
 
         # Check if we are submitting jobs, checking status, or downloading
-        if 'submit' in config and config['submit'] is not None:
+        if config['submit']:
             if 'granule_file' in config and config['granule_file'] is not None:
                 with open(config['granule_file'], "r") as f:
                     config["granules"] = [line.strip() for line in f if line.strip()]
                 asf_client.submit_jobs()
-        elif args.status:
-            asf_client.check_status(config['status'])
-        elif args.download:
+        elif config['status']:
+            logger.info(f"Checking status of job: {config['job_name']}")
+            asf_client.check_status(job_name=config['job_name'])
+        elif config['download']:
             if 'job_name' in config and config['job_name'] is not None:
                 asf_client.download(job_name=config['job_name'], output_dir=config['download'])
             else:
@@ -187,7 +187,6 @@ def main():
         else:
             logger.error("No action specified")
             sys.exit(1)
-        logger.info(f"Submitted jobs to ASF HyP3")
 
 
 if __name__ == "__main__":
