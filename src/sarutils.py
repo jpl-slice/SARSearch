@@ -353,7 +353,7 @@ class SARUtils:
         plt.tight_layout()
         plt.show()
 
-    def process_zip_files_in_directory(self, zip_dir, output_dir, num_processes=None):
+    def process_zip_files_in_directory(self, zip_dir, output_dir, num_workers=None):
         """
         Process zipped ASF hyp3 products in a directory moving and organizing GeoTIFFs and producing a CSV file
         with key information described in the log files.
@@ -369,8 +369,8 @@ class SARUtils:
 
         csv_file = os.path.join(output_dir, "output.csv")
 
-        if num_processes is None:
-            num_processes = cpu_count()
+        if num_workers is None:
+            num_workers = cpu_count()
 
         fieldnames = [
             "Granule Name",
@@ -394,7 +394,7 @@ class SARUtils:
             os.path.join(zip_dir, f) for f in os.listdir(zip_dir) if f.endswith(".zip")
         ]
 
-        with ProcessPoolExecutor(max_workers=num_processes) as executor:
+        with ProcessPoolExecutor(max_workers=num_workers) as executor:
             futures = {
                 executor.submit(self._process_zip_file, zip_file, output_dir): zip_file
                 for zip_file in zip_files

@@ -51,8 +51,15 @@ def main():
     parser = argparse.ArgumentParser(
         description="SARSearch: a tool for processing SAR data from ASF"
     )
-    subparsers = parser.add_subparsers(dest="command", help="Sub-command help")
+    parser.add_argument(
+        "--num_workers",
+        type=int,
+        help="Number of processors to use",
+        default=1,
+    )
 
+    # Create subparsers for different commands
+    subparsers = parser.add_subparsers(dest="command", help="Sub-command help")
     # Sub-parser for processing zip files
     parser_zip = subparsers.add_parser("process_zip", help="Process zip files from ASF")
     parser_zip.add_argument(
@@ -60,12 +67,6 @@ def main():
     )
     parser_zip.add_argument(
         "--output_dir", type=str, help="Destination directory for extracted files"
-    )
-    parser_zip.add_argument(
-        "--num_processes",
-        type=int,
-        help="Number of processes to use for extraction",
-        default=1,
     )
 
     # Sub-parser for applying landmask to already downloaded files
@@ -136,15 +137,13 @@ def main():
 
     if args.command == "process_zip":
         sar_utils = SARUtils(logger=logger)
-        sar_utils.process_zip_files_in_directory(
-            args.input_dir, args.output_dir, num_processes=args.num_processes
-        )
+        sar_utils.process_zip_files_in_directory(args.input_dir, args.output_dir, num_workers=args.num_workers)
         logger.info(
             f"Processed and extracted zip files from {args.input_dir} to {args.output_dir}"
         )
     elif args.command == "apply_landmask":
         sar_utils = SARUtils(logger, landcover_tif_path=args.landcover_tif)
-        sar_utils.multiprocess_apply_landmask(args.input_dir, args.output_dir)
+        sar_utils.multiprocess_apply_landmask(args.input_dir, args.output_dir, num_workers=args.num_workers)
         logger.info(
             f"Applied landmask to files in {args.input_dir} and saved to {args.output_dir}"
         )
