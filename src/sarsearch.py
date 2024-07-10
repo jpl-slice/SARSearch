@@ -82,6 +82,9 @@ def main():
     parser_apply.add_argument(
         "--landcover_tif", type=str, help="Path to the landcover GeoTIFF file"
     )
+    parser_apply.add_argument(
+        "--water_class", type=int, help="Water value for landcover classification"
+    )
 
     # Sub-parser for generating a tile map
     parser_tile = subparsers.add_parser(
@@ -143,7 +146,8 @@ def main():
         )
     elif args.command == "apply_landmask":
         sar_utils = SARUtils(logger, landcover_tif_path=args.landcover_tif)
-        sar_utils.multiprocess_apply_landmask(args.input_dir, args.output_dir, num_workers=args.num_workers)
+        sar_utils.multiprocess_apply_landmask(args.input_dir, args.output_dir, args.water_class,
+                                              num_workers=args.num_workers)
         logger.info(
             f"Applied landmask to files in {args.input_dir} and saved to {args.output_dir}"
         )

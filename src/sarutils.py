@@ -102,13 +102,18 @@ class SARUtils:
         else:
             self.logger.info("Landmask not provided.")
 
-    def apply_landmask(self, sar_image_path: str, output_dir: str) -> None:
+    def apply_landmask(self, sar_image_path: str, output_dir: str, water_class: int = 255) -> None:
         """
         Apply the landmask to a single SAR image and save the result.
 
         Args:
             sar_image_path (str): Path to the SAR image GeoTIFF file.
             output_dir (str): Directory to save the masked SAR image.
+            water_class (int): Landmask class to exclude from the SAR image.
+                This gets inverted to create the mask.
+                California region mask uses 255 for water bodies.
+                Mediterranean region mask uses 200 for water bodies.
+                Todo: WHY?
         """
         with rio.open(sar_image_path) as src:
             # Read the SAR image data
@@ -139,7 +144,8 @@ class SARUtils:
                 landcover_data = self.landcover_data
 
         # Define land classes to mask (e.g., water bodies)
-        water_classes = [255]
+        water_classes = [water_class]
+        print(water_classes)
         land_mask = np.isin(landcover_data, water_classes, invert=True)
 
         # Apply the land mask to the SAR image
@@ -159,7 +165,7 @@ class SARUtils:
         self.logger.info(f"Finished processing {sar_image_path}")
 
     def multiprocess_apply_landmask(
-        self, input_dir: str, output_dir: str, num_workers: int = None
+        self, input_dir: str, output_dir: str, water_class: int = 255, num_workers: int = None
     ) -> None:
         """
         Apply the landmask to all SAR images in the input directory using multiprocessing.
@@ -168,6 +174,7 @@ class SARUtils:
             input_dir (str): Directory containing the SAR image GeoTIFF files.
             output_dir (str): Directory to save the masked SAR images.
             num_workers (int, optional): Number of worker processes. Defaults to the number of CPU cores.
+            water_class (int): Landmask class to exclude from the SAR image.
         """
         os.makedirs(output_dir, exist_ok=True)
         # Get a list of all GeoTIFF files in the input directory
@@ -182,13 +189,14 @@ class SARUtils:
         # Create a pool of worker processes
         with ProcessPoolExecutor(max_workers=num_workers) as executor:
             futures = {
-                executor.submit(self._landmask_file, (file_path, output_dir)): file_path
+                executor.submit(self._landmask_file, (file_path, output_dir, water_class)): file_path
                 for file_path in tif_files
             }
 
             for future in tqdm(
                 as_completed(futures), total=len(futures), desc="Processing files"
             ):
+                future.result()
                 try:
                     future.result()
                 except Exception as e:
@@ -431,15 +439,15 @@ class SARUtils:
         except Exception as e:
             self.logger.error(f"Error in future result: {e}")
 
-    def _landmask_file(self, args: Tuple[str, str]) -> None:
+    def _landmask_file(self, args: Tuple[str, str, int]) -> None:
         """
         Wrapper function to landmask a single SAR image file.
 
         Args:
-            args (Tuple[str, str]): Tuple containing the SAR image path and output directory.
+            args (Tuple[str, str, int]): Tuple containing the SAR image path and output directory, and water class.
         """
-        sar_image_path, output_dir = args
-        self.apply_landmask(sar_image_path, output_dir)
+        sar_image_path, output_dir, water_class = args
+        self.apply_landmask(sar_image_path, output_dir, water_class)
 
     @staticmethod
     def _tilemap_file(args):
